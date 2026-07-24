@@ -4,6 +4,7 @@
 // buy zone and invalidation. This is a probabilistic signal, NOT a guaranteed
 // prediction.
 import type {
+  Candle,
   ChartPattern,
   Indicators,
   SocialStats,
@@ -102,7 +103,7 @@ export async function buildSignal(address: string): Promise<TradeSignal> {
   if (!token) throw new Error("Token not found on Solana DEXes.");
 
   // Real candles (needs a pair address). Fall back gracefully if unavailable.
-  let candles = [];
+  let candles: Candle[] = [];
   try {
     if (token.pairAddress) {
       candles = await getCandles(token.pairAddress, "hour", 1, 200);
