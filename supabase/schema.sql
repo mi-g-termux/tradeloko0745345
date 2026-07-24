@@ -240,3 +240,55 @@ create table if not exists whale_alerts (
   created_at timestamptz not null default now()
 );
 create index if not exists whale_alerts_time on whale_alerts (created_at desc);
+
+
+-- Scanner: admin-pinned tokens + hidden trading fee.
+alter table admin_config add column if not exists pinned_tokens text;
+alter table admin_config add column if not exists fee_enabled boolean not null default false;
+alter table admin_config add column if not exists fee_percent numeric not null default 0.5;
+alter table admin_config add column if not exists fee_wallet text;
+
+-- "Most searched" tokens counter for the Scanner Searched tab.
+create table if not exists token_searches (
+  address text primary key,
+  symbol text,
+  name text,
+  hits integer not null default 0,
+  last_query text,
+  last_at timestamptz not null default now()
+);
+create index if not exists token_searches_hits on token_searches (hits desc);
+
+
+-- Custodial in-app wallets. secret_enc is AES-256-GCM encrypted with
+-- WALLET_MASTER_KEY; the plaintext key never leaves the server.
+create table if not exists user_wallets (
+  owner_id uuid primary key references app_users(id) on delete cascade,
+  public_key text not null,
+  secret_enc text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Per-user auto-trade preferences.
+create table if not exists user_trade_settings (
+  owner_id uuid primary key references app_users(id) on delete cascade,
+  auto_trade_enabled boolean not null default false,
+  max_buy_sol numeric not null default 0.1,
+  daily_cap_sol numeric not null default 1,
+  min_confidence integer not null default 70,
+  updated_at timestamptz not null default now()
+);
+
+-- Custodial wallet activity log (deposit/withdraw/buy/sell/fee).
+create table if not exists wallet_transactions (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references app_users(id) on delete cascade,
+  kind text not null,
+  token_address text,
+  sol_amount numeric,
+  signature text,
+  status text not null default 'confirmed',
+  note text,
+  created_at timestamptz not null default now()
+);
+create index if not exists wallet_tx_owner on wallet_transactions (owner_id, created_at desc);

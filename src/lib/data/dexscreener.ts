@@ -106,7 +106,26 @@ const SCAN_TERMS = [
   "pepe",
 ];
 
-export type ScanSort = "volume" | "gainers" | "new";
+// Majors / stables that flood keyword search but aren't memecoin plays. We drop
+// them from the trending scan so the same SOL/USDC rows don't repeat.
+const EXCLUDE_SYMBOLS = new Set([
+  "SOL",
+  "WSOL",
+  "USDC",
+  "USDT",
+  "USDH",
+  "JUP",
+  "JLP",
+  "JITOSOL",
+  "MSOL",
+  "BSOL",
+  "WBTC",
+  "WETH",
+  "ETH",
+  "BTC",
+]);
+
+export type ScanSort = "trending" | "volume" | "gainers" | "new" | "searched";
 
 export async function scanTrending(
   sort: ScanSort = "volume",
@@ -127,7 +146,10 @@ export async function scanTrending(
   const minLiq = sort === "new" ? 0 : 1000;
   const minVol = sort === "new" ? 0 : 1000;
   let list = [...merged.values()].filter(
-    (t) => (t.liquidityUsd ?? 0) >= minLiq && (t.volume24h ?? 0) >= minVol,
+    (t) =>
+      (t.liquidityUsd ?? 0) >= minLiq &&
+      (t.volume24h ?? 0) >= minVol &&
+      !EXCLUDE_SYMBOLS.has((t.symbol || "").toUpperCase()),
   );
   if (sort === "gainers") {
     list.sort((a, b) => (b.priceChange24h ?? -999) - (a.priceChange24h ?? -999));

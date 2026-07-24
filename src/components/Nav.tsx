@@ -11,7 +11,7 @@ const baseLinks = [
   { href: "/whales", label: "Whales" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/orders", label: "Orders" },
-  { href: "/features", label: "Features" },
+  { href: "/wallet", label: "Wallet" },
   { href: "/account", label: "Account" },
 ];
 
@@ -35,7 +35,7 @@ export function Nav() {
       <div className="mx-auto max-w-6xl px-4 h-14 flex items-center justify-between gap-4">
         <div className="flex items-center gap-6 min-w-0">
           <Link href="/" className="font-bold tracking-tight text-white shrink-0">
-            📡 Memecoin Radar
+            MemePump
           </Link>
           <nav className="flex gap-1 overflow-x-auto">
             {links.map((l) => {

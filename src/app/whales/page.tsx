@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, XCircle } from "lucide-react";
 import type { WalletActivity } from "@/lib/types";
-import { shortAddr } from "@/lib/format";
+import { shortAddr, compact, usd } from "@/lib/format";
 
 export default function WhalesPage() {
   const [wallet, setWallet] = useState("");
@@ -73,7 +73,7 @@ export default function WhalesPage() {
         <input
           value={wallet}
           onChange={(e) => setWallet(e.target.value)}
-          placeholder="Wallet address…"
+          placeholder="Wallet address..."
           className="flex-1 min-w-[220px] bg-panel border border-edge rounded-lg px-3 py-2 text-sm font-mono"
         />
         <input
@@ -83,7 +83,7 @@ export default function WhalesPage() {
           className="w-40 bg-panel border border-edge rounded-lg px-3 py-2 text-sm"
         />
         <button onClick={lookup} disabled={loading} className="px-3 py-2 rounded-lg text-sm bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50">
-          {loading ? "…" : "Look up"}
+          {loading ? "..." : "Look up"}
         </button>
         <button onClick={track} className="px-3 py-2 rounded-lg text-sm bg-white/10 hover:bg-white/20 text-white">
           Track
@@ -103,7 +103,9 @@ export default function WhalesPage() {
               <th className="text-left px-3 py-2">Wallet</th>
               <th className="text-left px-3 py-2">Action</th>
               <th className="text-left px-3 py-2">Token</th>
-              <th className="text-right px-3 py-2">SOL</th>
+              <th className="text-right px-3 py-2">SOL size</th>
+              <th className="text-right px-3 py-2">Price</th>
+              <th className="text-right px-3 py-2">Market cap now</th>
               <th className="text-right px-3 py-2">When</th>
             </tr>
           </thead>
@@ -111,15 +113,22 @@ export default function WhalesPage() {
             {rows.map((a) => (
               <tr key={a.signature} className="border-t border-edge hover:bg-white/5">
                 <td className="px-3 py-2 font-mono">{a.label ?? shortAddr(a.wallet)}</td>
-                <td className={`px-3 py-2 font-semibold ${a.action === "buy" ? "text-emerald-400" : "text-red-400"}`}>
+                <td className={`px-3 py-2 font-semibold ${a.action === "buy" ? "text-emerald-400" : a.action === "sell" ? "text-red-400" : "text-slate-400"}`}>
                   {a.action.toUpperCase()}
                 </td>
                 <td className="px-3 py-2">
-                  <Link href={`/token/${a.tokenAddress}`} className="text-indigo-400 hover:text-indigo-300 font-mono">
-                    {shortAddr(a.tokenAddress)}
+                  <Link href={`/token/${a.tokenAddress}`} className="text-indigo-400 hover:text-indigo-300">
+                    {a.tokenSymbol ? (
+                      <span className="font-semibold">{a.tokenSymbol}</span>
+                    ) : (
+                      <span className="font-mono">{shortAddr(a.tokenAddress)}</span>
+                    )}
+                    {a.tokenName ? <span className="ml-1 text-slate-500">{a.tokenName}</span> : null}
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-right font-mono">{a.amountSol ? a.amountSol.toFixed(2) : "—"}</td>
+                <td className="px-3 py-2 text-right font-mono">{a.priceUsd != null ? usd(a.priceUsd) : "—"}</td>
+                <td className="px-3 py-2 text-right">{a.marketCap != null ? compact(a.marketCap) : "—"}</td>
                 <td className="px-3 py-2 text-right text-slate-400">
                   {new Date(a.timestamp).toLocaleString()}
                 </td>
@@ -127,7 +136,7 @@ export default function WhalesPage() {
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
                   No activity yet. Look up a wallet or add one to track.
                 </td>
               </tr>
@@ -135,6 +144,11 @@ export default function WhalesPage() {
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-slate-500">
+        Shows each wallet's on-chain buys/sells, trade size in SOL, and the token's
+        current price and market cap. Per-trade entry market cap and realized P/L
+        require a historical price indexer (paid) and are not shown here.
+      </p>
     </div>
   );
 }

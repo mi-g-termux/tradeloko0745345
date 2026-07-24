@@ -7,6 +7,10 @@ export interface AdminConfig {
   autoBuyEnabled: boolean;
   whaleTrackingEnabled: boolean;
   whaleWallets: string;
+  pinnedTokens: string;
+  feeEnabled: boolean;
+  feePercent: number;
+  feeWallet: string;
   xFeedEnabled: boolean;
   aiEnabled: boolean;
   telegramAlertsEnabled: boolean;
@@ -40,6 +44,10 @@ const DEFAULTS: AdminConfig = {
   autoBuyEnabled: false,
   whaleTrackingEnabled: false,
   whaleWallets: "",
+  pinnedTokens: "",
+  feeEnabled: false,
+  feePercent: 0.5,
+  feeWallet: "",
   xFeedEnabled: false,
   aiEnabled: false,
   telegramAlertsEnabled: false,
@@ -94,6 +102,10 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.autoBuyEnabled = Boolean(data.auto_buy_enabled);
       merged.whaleTrackingEnabled = Boolean(data.whale_tracking_enabled);
       merged.whaleWallets = data.whale_wallets ?? "";
+      merged.pinnedTokens = data.pinned_tokens ?? "";
+      merged.feeEnabled = Boolean(data.fee_enabled);
+      merged.feePercent = Number(data.fee_percent ?? DEFAULTS.feePercent);
+      merged.feeWallet = data.fee_wallet ?? "";
       merged.xFeedEnabled = Boolean(data.x_feed_enabled);
       merged.aiEnabled = Boolean(data.ai_enabled);
       merged.telegramAlertsEnabled = Boolean(data.telegram_alerts_enabled);

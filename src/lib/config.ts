@@ -16,6 +16,9 @@ export const SERVER_ENV = {
   telegramChatIdEnv: process.env.TELEGRAM_CHAT_ID ?? "",
   bootstrapAdminWallet: process.env.BOOTSTRAP_ADMIN_WALLET ?? "",
   sessionSecret: process.env.SESSION_SECRET ?? "dev-insecure-secret-change-me",
+  // Master key that encrypts custodial wallet secret keys at rest (AES-256-GCM).
+  // Set a 64-char hex string. If unset, in-app wallets are disabled.
+  walletMasterKey: process.env.WALLET_MASTER_KEY ?? "",
   // Secret that authorizes the scheduled scan endpoint (Vercel Cron).
   cronSecret: process.env.CRON_SECRET ?? "",
   // Default public RPC works with no key but is heavily rate-limited.

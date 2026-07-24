@@ -44,6 +44,9 @@ export interface WalletActivity {
   action: "buy" | "sell" | "unknown";
   tokenAddress: string;
   tokenSymbol?: string;
+  tokenName?: string;
+  marketCap?: number | null;
+  priceUsd?: number | null;
   amountSol?: number;
   signature: string;
   timestamp: number;

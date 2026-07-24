@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   description:
     "Real-time Solana memecoin scanner, safety analysis, signals, whale tracking and trading.",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export const viewport: Viewport = {

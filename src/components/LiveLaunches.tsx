@@ -1,9 +1,9 @@
 "use client";
-// Photon-style LIVE new-token feed with filters. Streams every new pump.fun mint
-// the instant it is created via the free PumpPortal websocket (no polling, no API
-// key), enriches each row with its logo (from the token metadata URI), and shows
-// market cap + initial dev buy + a live age counter. Client-side filters let you
-// narrow by search / minimum market cap / minimum dev buy.
+// Photon-style LIVE new-token feed. On load it BACKFILLS the most recent Solana
+// tokens (so you immediately see coins that launched a few minutes ago, not just
+// mints created after you opened the page), then streams every brand-new pump.fun
+// mint the instant it is created via the free PumpPortal websocket. Each row is
+// enriched with its logo, market cap, initial dev buy and a live age counter.
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Rocket, Zap, Search } from "lucide-react";
@@ -15,13 +15,13 @@ interface LiveToken {
   uri?: string;
   logo?: string | null;
   marketCapSol?: number | null;
+  marketCapUsd?: number | null;
   initialBuySol?: number | null;
   at: number;
 }
 
 type Status = "connecting" | "live" | "closed";
 
-// Turn an ipfs:// or gateway URL into a browser-loadable https URL.
 function resolveUri(uri: string): string {
   if (uri.startsWith("ipfs://")) {
     return "https://ipfs.io/ipfs/" + uri.slice("ipfs://".length);
@@ -34,7 +34,9 @@ function ageStr(from: number, now: number): string {
   if (s < 60) return s + "s";
   const m = Math.floor(s / 60);
   if (m < 60) return m + "m";
-  return Math.floor(m / 60) + "h";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h";
+  return Math.floor(h / 24) + "d";
 }
 
 function fmtSol(n: number | null | undefined): string {
@@ -44,12 +46,18 @@ function fmtSol(n: number | null | undefined): string {
   return n.toFixed(3);
 }
 
-function fmtUsd(sol: number | null | undefined, solPrice: number | null): string {
-  if (sol == null) return "—";
-  if (solPrice == null) return fmtSol(sol) + " SOL";
-  const v = sol * solPrice;
+function fmtUsdRaw(v: number | null | undefined): string {
+  if (v == null) return "—";
+  if (v >= 1_000_000) return "$" + (v / 1_000_000).toFixed(1) + "M";
   if (v >= 1000) return "$" + (v / 1000).toFixed(1) + "K";
   return "$" + v.toFixed(0);
+}
+
+function fmtMcap(it: LiveToken, solPrice: number | null): string {
+  if (it.marketCapUsd != null) return fmtUsdRaw(it.marketCapUsd);
+  if (it.marketCapSol == null) return "—";
+  if (solPrice == null) return fmtSol(it.marketCapSol) + " SOL";
+  return fmtUsdRaw(it.marketCapSol * solPrice);
 }
 
 const MCAP_PRESETS: Array<{ label: string; value: number | null }> = [
@@ -84,6 +92,38 @@ export default function LiveLaunches() {
       .then((r) => r.json())
       .then((d: { solana?: { usd?: number } }) => {
         if (!dead && d?.solana?.usd) setSolPrice(d.solana.usd);
+      })
+      .catch(() => {});
+    return () => {
+      dead = true;
+    };
+  }, []);
+
+  // BACKFILL: seed with the newest tokens from DexScreener so the list is never
+  // empty and shows coins that are a few minutes old the moment you arrive.
+  useEffect(() => {
+    let dead = false;
+    fetch("/api/tokens?sort=new")
+      .then((r) => r.json())
+      .then((j: { tokens?: Array<Record<string, unknown>> }) => {
+        if (dead || !Array.isArray(j.tokens)) return;
+        const seed: LiveToken[] = j.tokens.slice(0, 40).map((t) => ({
+          mint: String(t.address),
+          symbol: String(t.symbol ?? "?"),
+          name: String(t.name ?? ""),
+          logo: (t.imageUrl as string | null) ?? null,
+          marketCapSol: null,
+          marketCapUsd:
+            (t.marketCap as number | null) ?? (t.fdv as number | null) ?? null,
+          initialBuySol: null,
+          at: (t.pairCreatedAt as number | null) ?? Date.now(),
+        }));
+        setItems((prev) => {
+          const seen = new Set(prev.map((p) => p.mint));
+          return [...prev, ...seed.filter((s) => !seen.has(s.mint))]
+            .sort((a, b) => b.at - a.at)
+            .slice(0, 80);
+        });
       })
       .catch(() => {});
     return () => {
@@ -148,10 +188,14 @@ export default function LiveLaunches() {
           uri: d.uri,
           logo: null,
           marketCapSol: d.marketCapSol ?? null,
+          marketCapUsd: null,
           initialBuySol: d.solAmount ?? null,
           at: Date.now(),
         };
-        setItems((prev) => [token, ...prev].slice(0, 60));
+        setItems((prev) => {
+          if (prev.some((p) => p.mint === mint)) return prev;
+          return [token, ...prev].slice(0, 80);
+        });
         hydrateLogo(mint, d.uri);
       } catch {
         /* ignore heartbeats / non-JSON frames */
@@ -185,9 +229,14 @@ export default function LiveLaunches() {
         if (!hay.includes(q)) return false;
       }
       if (minDevBuy != null && (it.initialBuySol ?? 0) < minDevBuy) return false;
-      if (minMcap != null && solPrice != null) {
-        const mc = (it.marketCapSol ?? 0) * solPrice;
-        if (mc < minMcap) return false;
+      if (minMcap != null) {
+        const mc =
+          it.marketCapUsd != null
+            ? it.marketCapUsd
+            : solPrice != null
+              ? (it.marketCapSol ?? 0) * solPrice
+              : null;
+        if (mc != null && mc < minMcap) return false;
       }
       return true;
     });
@@ -212,7 +261,7 @@ export default function LiveLaunches() {
               ? "paused"
               : "streaming new mints in real time"
             : status === "connecting"
-              ? "connecting…"
+              ? "connecting..."
               : "disconnected — reload to reconnect"}
         </span>
         <button
@@ -230,7 +279,7 @@ export default function LiveLaunches() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search symbol / name / mint…"
+            placeholder="Search symbol / name / mint..."
             className="w-full rounded-md border border-edge bg-panel py-1.5 pl-7 pr-2 text-xs text-white focus:border-indigo-500/50 focus:outline-none"
           />
         </div>
@@ -285,11 +334,9 @@ export default function LiveLaunches() {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                  {status !== "live"
-                    ? "Connecting to the live feed…"
-                    : items.length === 0
-                      ? "Waiting for the next mint… new pump.fun tokens appear here the instant they launch."
-                      : "No tokens match your filters."}
+                  {items.length === 0
+                    ? "Loading recent tokens..."
+                    : "No tokens match your filters."}
                 </td>
               </tr>
             )}
@@ -323,7 +370,7 @@ export default function LiveLaunches() {
                   {ageStr(it.at, now)}
                 </td>
                 <td className="px-3 py-2 text-right text-slate-200">
-                  {fmtUsd(it.marketCapSol, solPrice)}
+                  {fmtMcap(it, solPrice)}
                 </td>
                 <td className="px-3 py-2 text-right text-slate-400">
                   {it.initialBuySol != null ? fmtSol(it.initialBuySol) + " SOL" : "—"}
