@@ -108,6 +108,7 @@ export default function ScannerPage() {
               <th className="text-right px-3 py-2">Price</th>
               <th className="text-right px-3 py-2">1h</th>
               <th className="text-right px-3 py-2">24h</th>
+              <th className="text-right px-3 py-2">MCap</th>
               <th className="text-right px-3 py-2">Liq</th>
               <th className="text-right px-3 py-2">Vol 24h</th>
               <th className="text-right px-3 py-2">Age</th>
@@ -131,6 +132,7 @@ export default function ScannerPage() {
                 <td className="px-3 py-2 text-right font-mono">{usd(t.priceUsd)}</td>
                 <td className={`px-3 py-2 text-right ${pctColor(t.priceChange1h)}`}>{pct(t.priceChange1h)}</td>
                 <td className={`px-3 py-2 text-right ${pctColor(t.priceChange24h)}`}>{pct(t.priceChange24h)}</td>
+                <td className="px-3 py-2 text-right">{compact(t.marketCap ?? t.fdv)}</td>
                 <td className="px-3 py-2 text-right">{compact(t.liquidityUsd)}</td>
                 <td className="px-3 py-2 text-right">{compact(t.volume24h)}</td>
                 <td className="px-3 py-2 text-right text-slate-400">{ageLabel(t.ageHours)}</td>
@@ -138,7 +140,7 @@ export default function ScannerPage() {
             ))}
             {tokens.length === 0 && !loading && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
+                <td colSpan={8} className="px-3 py-8 text-center text-slate-500">
                   No tokens found.
                 </td>
               </tr>
