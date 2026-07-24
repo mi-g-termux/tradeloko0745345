@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/scan", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/outcomes", "schedule": "*/20 * * * *" },
+    { "path": "/api/cron/copytrade", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/keeper", "schedule": "*/3 * * * *" },
+    { "path": "/api/cron/holders", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/price-alerts", "schedule": "*/2 * * * *" }
+  ]
+}
