@@ -11,6 +11,18 @@ function dirColor(d: string) {
       : "text-slate-300 border-slate-500/30 bg-slate-500/5";
 }
 
+function mc(n: number | null): string {
+  if (n == null) return "—";
+  if (n >= 1000000) return "$" + (n / 1000000).toFixed(1) + "M";
+  if (n >= 1000) return "$" + (n / 1000).toFixed(0) + "K";
+  return "$" + n.toFixed(0);
+}
+
+function priceStr(n: number | null): string {
+  if (n == null) return "—";
+  return n < 1 ? "$" + n.toPrecision(4) : "$" + n.toFixed(2);
+}
+
 function Badge({ label, value }: { label: string; value: string }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-edge bg-base px-2 py-1 text-xs">
@@ -141,6 +153,8 @@ export function SignalPanel({ address }: { address: string }) {
         <Badge label="MACD" value={ind.macdHist != null ? ind.macdHist.toExponential(1) : "—"} />
         <Badge label="support" value={ind.support != null ? ind.support.toPrecision(4) : "—"} />
         <Badge label="resist" value={ind.resistance != null ? ind.resistance.toPrecision(4) : "—"} />
+        {sig.priceUsd != null && <Badge label="price" value={priceStr(sig.priceUsd)} />}
+        {sig.marketCap != null && <Badge label="mkt cap" value={mc(sig.marketCap)} />}
         {sig.safetyScore != null && <Badge label="safety" value={`${sig.safetyScore}/100`} />}
         {social?.available && <Badge label="X mentions" value={String(social.mentionCount)} />}
       </div>
@@ -162,15 +176,28 @@ export function SignalPanel({ address }: { address: string }) {
         </div>
       )}
 
-      {sig.suggestedEntry && (
-        <p className="mt-3 text-sm text-slate-200">
-          <b>Suggested entry:</b> {sig.suggestedEntry}
-        </p>
-      )}
-      {sig.invalidation && (
-        <p className="mt-1 text-sm text-slate-400">
-          <b>Invalidation:</b> {sig.invalidation}
-        </p>
+      {(sig.suggestedEntry || (sig.targets && sig.targets.length > 0) || sig.stopLoss) && (
+        <div className="mt-3 rounded-md border border-edge bg-base p-3 space-y-1 text-sm">
+          <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">Trade plan</div>
+          {sig.suggestedEntry && (
+            <p className="text-slate-200">
+              <b className="text-emerald-400">Buy:</b> {sig.suggestedEntry}
+            </p>
+          )}
+          {sig.targets && sig.targets.length > 0 && (
+            <p className="text-slate-200">
+              <b className="text-indigo-300">Targets:</b> {sig.targets.join(", ")}
+            </p>
+          )}
+          {sig.stopLoss && (
+            <p className="text-slate-300">
+              <b className="text-red-400">Stop:</b> {sig.stopLoss}
+            </p>
+          )}
+          {sig.invalidation && (
+            <p className="text-slate-400 text-xs">{sig.invalidation}</p>
+          )}
+        </div>
       )}
 
       {/* X / Twitter social */}

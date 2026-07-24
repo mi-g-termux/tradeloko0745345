@@ -187,6 +187,18 @@ export async function buildSignal(address: string): Promise<TradeSignal> {
       : null;
   }
 
+  const pf = (n: number): string => `$${n.toPrecision(4)}`;
+  let targets: string[] = [];
+  let stopLoss: string | null = null;
+  if (direction === "bullish" && token.priceUsd != null) {
+    const p = token.priceUsd;
+    targets = [`2x (${pf(p * 2)})`, `3x (${pf(p * 3)})`, `5x (${pf(p * 5)})`];
+    stopLoss =
+      ind.support != null
+        ? `${pf(ind.support)} (support) / -30% (${pf(p * 0.7)})`
+        : `-30% (${pf(p * 0.7)})`;
+  }
+
   return {
     address,
     symbol: token.symbol,
@@ -194,8 +206,11 @@ export async function buildSignal(address: string): Promise<TradeSignal> {
     confidence,
     score: blended,
     priceUsd: token.priceUsd,
+    marketCap: token.marketCap ?? token.fdv,
     suggestedEntry,
     invalidation,
+    targets,
+    stopLoss,
     rationale,
     indicators: ind,
     patterns,

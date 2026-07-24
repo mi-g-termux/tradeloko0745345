@@ -226,3 +226,5 @@ create table if not exists email_log (
   created_at timestamptz not null default now()
 );
 create index if not exists email_log_time on email_log (created_at desc);
+
+alter table signals add column if not exists last_alert_multiple numeric;

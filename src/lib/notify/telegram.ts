@@ -1,16 +1,23 @@
-// Telegram alerts — ported from the Quotex telegram-broadcaster, rebuilt for
-// memecoin signals. Uses the real Telegram Bot API. Broadcasts are gated behind
-// the admin toggle + bot token + chat id. Per-user alerts (feature #5) go to
-// each user's saved chat id. If config is missing it no-ops (never throws).
+// Telegram alerts — real Telegram Bot API. Broadcasts are gated behind the admin
+// toggle + bot token + chat id. Per-user alerts go to each user's saved chat id.
+// Signal messages include price, market cap, a buy zone, take-profit targets, a
+// stop level, a tap-to-copy contract address, and quick Trade/Chart buttons.
+// Auto follow-up "pump" updates fire when an alerted token climbs (2x/3x/...).
 import { getAdminConfig } from "../adminConfig";
 import { getServiceClient } from "../supabase";
+import { appBaseUrl } from "../config";
 import type { TradeSignal } from "../types";
+
+type InlineKeyboard = {
+  inline_keyboard: Array<Array<Record<string, unknown>>>;
+};
 
 /** Low-level send to a specific chat id using a specific bot token. */
 async function sendTo(
   botToken: string,
   chatId: string,
   text: string,
+  replyMarkup?: InlineKeyboard,
 ): Promise<boolean> {
   if (!botToken || !chatId) return false;
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
@@ -23,6 +30,7 @@ async function sendTo(
         text,
         parse_mode: "HTML",
         disable_web_page_preview: true,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
       }),
     });
     return res.ok;
@@ -32,28 +40,65 @@ async function sendTo(
 }
 
 /** Send to the global broadcast chat (admin-configured). */
-async function send(text: string): Promise<boolean> {
+async function send(
+  text: string,
+  replyMarkup?: InlineKeyboard,
+): Promise<boolean> {
   const cfg = await getAdminConfig();
   if (!cfg.telegramAlertsEnabled) return false;
-  return sendTo(cfg.telegramBotToken, cfg.telegramChatId, text);
+  return sendTo(cfg.telegramBotToken, cfg.telegramChatId, text, replyMarkup);
 }
 
 function emoji(direction: string): string {
   return direction === "bullish" ? "🟢" : direction === "bearish" ? "🔴" : "⚪";
 }
 
+function usdCompact(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toPrecision(4)}`;
+}
+
+/** Quick-action buttons: trade on the app, chart, pump.fun, copy CA. */
+function tokenButtons(address: string): InlineKeyboard {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⚡ Trade", url: `${appBaseUrl()}/token/${address}` },
+        { text: "📈 Chart", url: `https://dexscreener.com/solana/${address}` },
+      ],
+      [
+        { text: "🔗 Pump.fun", url: `https://pump.fun/${address}` },
+        { text: "📋 Copy CA", copy_text: { text: address } },
+      ],
+    ],
+  };
+}
+
 function signalText(s: TradeSignal): string {
   const lines = [
-    `${emoji(s.direction)} <b>${s.symbol}</b> — ${s.direction.toUpperCase()} signal`,
-    `Confidence: <b>${s.confidence}%</b>  (score ${s.score})`,
-    s.safetyScore != null ? `Safety: ${s.safetyScore}/100` : "",
-    s.suggestedEntry ? `Entry: ${s.suggestedEntry}` : "",
-    s.invalidation ? `Invalidation: ${s.invalidation}` : "",
-    s.ai ? `AI: ${s.ai.lean} (${s.ai.confidence}%) — ${s.ai.reasoning}` : "",
+    `${emoji(s.direction)} <b>$${s.symbol}</b> — ${s.direction.toUpperCase()} signal`,
+    "━━━━━━━━━━━━━",
+    `💰 Price: <b>${usdCompact(s.priceUsd)}</b>`,
+    `📊 Market cap: <b>${usdCompact(s.marketCap)}</b>`,
+    `🎯 Confidence: <b>${s.confidence}%</b> (score ${s.score})`,
+    s.safetyScore != null ? `🛡 Safety: ${s.safetyScore}/100` : "",
     "",
+    s.suggestedEntry ? `📥 <b>Buy:</b> ${s.suggestedEntry}` : "",
+    s.targets && s.targets.length
+      ? `🎯 <b>Targets:</b> ${s.targets.join("  •  ")}`
+      : "",
+    s.stopLoss ? `🛑 <b>Stop:</b> ${s.stopLoss}` : "",
+    s.invalidation ? `⚠ ${s.invalidation}` : "",
+    s.ai ? `\n🤖 AI: ${s.ai.lean} (${s.ai.confidence}%) — ${s.ai.reasoning}` : "",
+    "",
+    "Contract (tap to copy):",
     `<code>${s.address}</code>`,
+    "",
     "⚠ Signal, not a guarantee. Memecoins are extremely high risk.",
-  ].filter(Boolean);
+  ].filter((l) => l !== "");
   return lines.join("\n");
 }
 
@@ -70,7 +115,7 @@ export async function telegramReady(): Promise<{
 }
 
 export async function broadcastSignal(s: TradeSignal): Promise<boolean> {
-  return send(signalText(s));
+  return send(signalText(s), tokenButtons(s.address));
 }
 
 export async function broadcastBuy(
@@ -88,12 +133,35 @@ export async function broadcastBuy(
   );
 }
 
-/**
- * Per-user watchlist alerts (feature #5). Notifies every user who watches this
- * token AND has alerts_enabled + a saved telegram_chat_id. Uses the admin bot
- * token to deliver. Returns how many users were notified.
- */
-export async function notifyWatchers(s: TradeSignal): Promise<number> {
+/** Auto follow-up when an alerted token climbs (2x/3x/...). */
+export async function broadcastSignalPump(
+  symbol: string,
+  address: string,
+  multiple: number,
+  priceUsd: number | null,
+  marketCap: number | null,
+): Promise<boolean> {
+  const text = [
+    `🚀 <b>$${symbol}</b> is up <b>${multiple}x</b> since the signal!`,
+    "━━━━━━━━━━━━━",
+    `💰 Price: <b>${usdCompact(priceUsd)}</b>`,
+    `📊 Market cap: <b>${usdCompact(marketCap)}</b>`,
+    "",
+    "Consider taking some profit. 💸",
+    "",
+    "Contract (tap to copy):",
+    `<code>${address}</code>`,
+  ].join("\n");
+  const ok = await send(text, tokenButtons(address));
+  await notifyWatchersText(address, text, tokenButtons(address));
+  return ok;
+}
+
+async function notifyWatchersText(
+  address: string,
+  text: string,
+  replyMarkup?: InlineKeyboard,
+): Promise<number> {
   const cfg = await getAdminConfig();
   if (!cfg.telegramBotToken) return 0;
   const db = getServiceClient();
@@ -102,7 +170,7 @@ export async function notifyWatchers(s: TradeSignal): Promise<number> {
   const { data: watchers } = await db
     .from("watchlist")
     .select("owner_id")
-    .eq("token_address", s.address);
+    .eq("token_address", address);
   if (!watchers || watchers.length === 0) return 0;
 
   const ownerIds = [...new Set(watchers.map((w) => w.owner_id).filter(Boolean))];
@@ -115,11 +183,22 @@ export async function notifyWatchers(s: TradeSignal): Promise<number> {
   if (!users) return 0;
 
   let notified = 0;
-  const text = `🔔 Watchlist alert\n${signalText(s)}`;
   for (const u of users) {
     if (!u.alerts_enabled || !u.telegram_chat_id) continue;
-    const ok = await sendTo(cfg.telegramBotToken, u.telegram_chat_id, text);
+    const ok = await sendTo(cfg.telegramBotToken, u.telegram_chat_id, text, replyMarkup);
     if (ok) notified++;
   }
   return notified;
+}
+
+/**
+ * Per-user watchlist alerts. Notifies every user who watches this token AND has
+ * alerts_enabled + a saved telegram_chat_id. Returns how many were notified.
+ */
+export async function notifyWatchers(s: TradeSignal): Promise<number> {
+  return notifyWatchersText(
+    s.address,
+    `🔔 Watchlist alert\n${signalText(s)}`,
+    tokenButtons(s.address),
+  );
 }

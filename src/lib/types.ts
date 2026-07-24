@@ -120,8 +120,11 @@ export interface TradeSignal {
   confidence: number; // 0-100
   score: number; // -100..100 composite
   priceUsd: number | null; // price at signal time (for outcome tracking)
+  marketCap: number | null; // market cap at signal time
   suggestedEntry: string | null;
   invalidation: string | null;
+  targets: string[]; // suggested take-profit levels
+  stopLoss: string | null; // suggested stop / risk level
   rationale: string[];
   indicators: Indicators;
   patterns: ChartPattern[];

@@ -1,7 +1,9 @@
 // Signal outcome tracking (feature #3). Stores price at signal time; crons
 // backfill 1h/24h prices and compute % return, powering a REAL hit-rate.
+// Also drives automatic Telegram "pump" follow-ups when an alerted token climbs.
 import { getServiceClient } from "../supabase";
 import { getTokenSummary } from "../data/dexscreener";
+import { broadcastSignalPump } from "../notify/telegram";
 
 export interface OutcomeResult { checked1h: number; checked24h: number; }
 
@@ -50,6 +52,54 @@ export async function backfillOutcomes(): Promise<OutcomeResult> {
     checked24h++;
   }
   return { checked1h, checked24h };
+}
+
+// Milestones (multiples of the signal price) that trigger a Telegram follow-up.
+const PUMP_MILESTONES = [1.5, 2, 3, 5, 10];
+
+export interface PumpUpdateResult { updated: number; }
+
+/**
+ * For each recently-alerted bullish signal, check the live price and, if the
+ * token has crossed a new multiple milestone since the last update, post an
+ * automatic "up Nx" follow-up to Telegram (global + watchers) with the current
+ * price and market cap. Milestone progress is stored so we never double-notify.
+ */
+export async function broadcastSignalPumps(): Promise<PumpUpdateResult> {
+  const db = getServiceClient();
+  if (!db) return { updated: 0 };
+
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const { data: rows } = await db
+    .from("signals")
+    .select("id, token_address, symbol, price_at_signal, last_alert_multiple")
+    .eq("alerted", true)
+    .eq("direction", "bullish")
+    .not("price_at_signal", "is", null)
+    .gte("created_at", since)
+    .limit(100);
+
+  let updated = 0;
+  for (const s of rows ?? []) {
+    const base = Number(s.price_at_signal);
+    if (!base) continue;
+    const t = await getTokenSummary(s.token_address).catch(() => null);
+    if (!t || t.priceUsd == null) continue;
+    const mult = t.priceUsd / base;
+    const last = Number(s.last_alert_multiple ?? 1);
+    const hit = PUMP_MILESTONES.filter((m) => mult >= m && m > last).pop();
+    if (!hit) continue;
+    await broadcastSignalPump(
+      s.symbol ?? "?",
+      s.token_address,
+      hit,
+      t.priceUsd,
+      t.marketCap ?? t.fdv,
+    ).catch(() => false);
+    await db.from("signals").update({ last_alert_multiple: hit }).eq("id", s.id);
+    updated++;
+  }
+  return { updated };
 }
 
 export interface SignalStats {
