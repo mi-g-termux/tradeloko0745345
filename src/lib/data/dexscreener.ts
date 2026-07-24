@@ -122,8 +122,12 @@ export async function scanTrending(
       if (!merged.has(t.address)) merged.set(t.address, t);
     }
   }
+  // The "new" tab should surface freshly-created pairs even with tiny
+  // liquidity/volume; only the momentum tabs need a floor to cut noise.
+  const minLiq = sort === "new" ? 0 : 1000;
+  const minVol = sort === "new" ? 0 : 1000;
   let list = [...merged.values()].filter(
-    (t) => (t.liquidityUsd ?? 0) > 1000 && (t.volume24h ?? 0) > 1000,
+    (t) => (t.liquidityUsd ?? 0) >= minLiq && (t.volume24h ?? 0) >= minVol,
   );
   if (sort === "gainers") {
     list.sort((a, b) => (b.priceChange24h ?? -999) - (a.priceChange24h ?? -999));

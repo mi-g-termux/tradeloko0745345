@@ -29,7 +29,7 @@ export interface ScanResult {
 // Don't re-alert the same token within this window.
 const DEDUPE_HOURS = 6;
 // Cap how many tokens we deep-analyze per run (rate-limit friendliness).
-const MAX_ANALYZE = 20;
+const MAX_ANALYZE = 12;
 // Cap how many alerts we actually send per run (avoid spamming Telegram).
 const MAX_ALERTS = 5;
 
@@ -37,19 +37,21 @@ export async function scanAndAlert(): Promise<ScanResult> {
   const cfg = await getAdminConfig();
   const candidates = await scanTrending("volume", MAX_ANALYZE);
 
+  // Analyze all candidates in PARALLEL and skip the slow AI/social calls so
+  // the whole run finishes well under the cron timeout.
+  const settled = await Promise.allSettled(
+    candidates.map((t) => buildSignal(t.address, { skipAi: true, skipSocial: true })),
+  );
   const qualified: TradeSignal[] = [];
-  for (const t of candidates) {
-    try {
-      const sig = await buildSignal(t.address);
-      if (
-        sig.direction === "bullish" &&
-        sig.confidence >= cfg.minSignalConfidence &&
-        (sig.safetyScore == null || sig.safetyScore >= cfg.requireSafeScore)
-      ) {
-        qualified.push(sig);
-      }
-    } catch {
-      // ignore individual token failures; keep scanning
+  for (const r of settled) {
+    if (r.status !== "fulfilled") continue;
+    const sig = r.value;
+    if (
+      sig.direction === "bullish" &&
+      sig.confidence >= cfg.minSignalConfidence &&
+      (sig.safetyScore == null || sig.safetyScore >= cfg.requireSafeScore)
+    ) {
+      qualified.push(sig);
     }
   }
 

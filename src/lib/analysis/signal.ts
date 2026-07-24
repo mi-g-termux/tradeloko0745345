@@ -98,7 +98,7 @@ function scoreComposite(
   return { score: clampScore(score), rationale };
 }
 
-export async function buildSignal(address: string): Promise<TradeSignal> {
+export async function buildSignal(address: string, opts: { skipAi?: boolean; skipSocial?: boolean } = {}): Promise<TradeSignal> {
   const token = await getTokenSummary(address);
   if (!token) throw new Error("Token not found on Solana DEXes.");
 
@@ -130,10 +130,12 @@ export async function buildSignal(address: string): Promise<TradeSignal> {
 
   // X / Twitter social (only if admin enabled + key present).
   let social: SocialStats | null = null;
-  try {
-    social = await getSocialStats(token.symbol, address);
-  } catch {
-    social = null;
+  if (!opts.skipSocial) {
+    try {
+      social = await getSocialStats(token.symbol, address);
+    } catch {
+      social = null;
+    }
   }
 
   let blended = score;
@@ -149,9 +151,9 @@ export async function buildSignal(address: string): Promise<TradeSignal> {
   }
 
   // Optional AI lean (only if admin enabled + key present).
-  const ai = await analyzeWithAi(token, ind, patterns, safetyScore).catch(
-    () => null,
-  );
+  const ai = opts.skipAi
+    ? null
+    : await analyzeWithAi(token, ind, patterns, safetyScore).catch(() => null);
   if (ai) {
     const aiSigned =
       ai.lean === "bullish"

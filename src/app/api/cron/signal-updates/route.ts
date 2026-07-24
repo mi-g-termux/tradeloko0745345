@@ -10,7 +10,9 @@ export const maxDuration = 60;
 function authorized(req: Request): boolean {
   const secret = SERVER_ENV.cronSecret;
   if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
+  if (req.headers.get("authorization") === `Bearer ${secret}`) return true;
+  const key = new URL(req.url).searchParams.get("key");
+  return key === secret;
 }
 
 export async function GET(req: Request) {
@@ -19,6 +21,6 @@ export async function GET(req: Request) {
     const result = await broadcastSignalPumps();
     return NextResponse.json({ ok: true, result });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: (err as Error).message });
   }
 }
