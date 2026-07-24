@@ -79,6 +79,14 @@ export function BuyPanel({ address, symbol }: { address: string; symbol: string 
         Non-custodial: the swap is built by Jupiter and signed by <b>your</b> wallet.
         This app never holds your keys. Review the quote before signing.
       </p>
+      <a
+        href={`https://pump.fun/${address}`}
+        target="_blank"
+        rel="noreferrer"
+        className="mb-3 inline-block text-xs text-indigo-400 hover:text-indigo-300"
+      >
+        New or pre-graduation token? Trade it on Pump.fun instead
+      </a>
       <div className="flex items-center gap-2">
         <div className="relative">
           <input

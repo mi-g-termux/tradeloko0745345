@@ -11,7 +11,7 @@ import type {
   TokenSummary,
 } from "../types";
 
-const MODEL = "gemini-1.5-flash";
+const MODEL = "gemini-2.0-flash";
 
 interface GeminiResponse {
   candidates?: Array<{

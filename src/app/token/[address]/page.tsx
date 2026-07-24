@@ -43,7 +43,55 @@ export default function TokenPage() {
       {loading ? (
         <div className="text-slate-500">Loading token…</div>
       ) : !summary ? (
-        <div className="text-red-400">Token not found on Solana DEXes.</div>
+        <div className="rounded-lg border border-edge bg-panel p-5 space-y-3">
+          <div className="text-white font-bold">Brand-new token</div>
+          <p className="text-sm text-slate-400">
+            This token is not on DexScreener yet. Freshly-launched pump.fun
+            tokens take a few minutes to be indexed by DEX aggregators, and they
+            trade on the pump.fun bonding curve until they graduate to a DEX.
+            In-app (Jupiter) buys work after graduation; until then, trade it on
+            pump.fun.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={`https://pump.fun/${address}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+            >
+              Trade on Pump.fun <ExternalLink size={14} />
+            </a>
+            <a
+              href={`https://dexscreener.com/solana/${address}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-2 text-sm text-slate-200 hover:text-white"
+            >
+              DexScreener <ExternalLink size={14} />
+            </a>
+            <a
+              href={`https://solscan.io/token/${address}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-2 text-sm text-slate-200 hover:text-white"
+            >
+              Solscan <ExternalLink size={14} />
+            </a>
+            <button
+              onClick={() => navigator.clipboard.writeText(address)}
+              className="inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-2 text-sm text-slate-200 hover:text-white"
+            >
+              Copy CA
+            </button>
+            <button
+              onClick={() => location.reload()}
+              className="inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-2 text-sm text-slate-200 hover:text-white"
+            >
+              Retry
+            </button>
+          </div>
+          <div className="text-xs text-slate-500 font-mono break-all">{address}</div>
+        </div>
       ) : (
         <>
           <div className="flex items-center gap-3">

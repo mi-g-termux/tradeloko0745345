@@ -103,7 +103,7 @@ export async function buildSignal(address: string): Promise<TradeSignal> {
   if (!token) throw new Error("Token not found on Solana DEXes.");
 
   // Real candles (needs a pair address). Fall back gracefully if unavailable.
- let candles: Awaited<ReturnType<typeof getCandles>> = [];
+  let candles: Candle[] = [];
   try {
     if (token.pairAddress) {
       candles = await getCandles(token.pairAddress, "hour", 1, 200);
