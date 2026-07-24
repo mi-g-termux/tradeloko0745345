@@ -6,6 +6,7 @@ import { SERVER_ENV } from "./config";
 export interface AdminConfig {
   autoBuyEnabled: boolean;
   whaleTrackingEnabled: boolean;
+  whaleWallets: string;
   xFeedEnabled: boolean;
   aiEnabled: boolean;
   telegramAlertsEnabled: boolean;
@@ -38,6 +39,7 @@ export interface AdminConfig {
 const DEFAULTS: AdminConfig = {
   autoBuyEnabled: false,
   whaleTrackingEnabled: false,
+  whaleWallets: "",
   xFeedEnabled: false,
   aiEnabled: false,
   telegramAlertsEnabled: false,
@@ -91,6 +93,7 @@ export async function getAdminConfig(): Promise<AdminConfig> {
     if (data) {
       merged.autoBuyEnabled = Boolean(data.auto_buy_enabled);
       merged.whaleTrackingEnabled = Boolean(data.whale_tracking_enabled);
+      merged.whaleWallets = data.whale_wallets ?? "";
       merged.xFeedEnabled = Boolean(data.x_feed_enabled);
       merged.aiEnabled = Boolean(data.ai_enabled);
       merged.telegramAlertsEnabled = Boolean(data.telegram_alerts_enabled);

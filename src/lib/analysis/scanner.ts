@@ -35,7 +35,14 @@ const MAX_ALERTS = 5;
 
 export async function scanAndAlert(): Promise<ScanResult> {
   const cfg = await getAdminConfig();
-  const candidates = await scanTrending("volume", MAX_ANALYZE);
+  const [byGain, byVol] = await Promise.all([
+    scanTrending("gainers", MAX_ANALYZE),
+    scanTrending("volume", MAX_ANALYZE),
+  ]);
+  const seen = new Set<string>();
+  const candidates = [...byGain, ...byVol]
+    .filter((t) => (seen.has(t.address) ? false : (seen.add(t.address), true)))
+    .slice(0, MAX_ANALYZE);
 
   // Analyze all candidates in PARALLEL and skip the slow AI/social calls so
   // the whole run finishes well under the cron timeout.

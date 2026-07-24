@@ -32,6 +32,7 @@ const PLAIN_KEYS = [
   "launch_feed_enabled",
   "keeper_enabled",
   "telegram_chat_id",
+  "whale_wallets",
   "rpc_url",
   "max_buy_sol",
   "daily_spend_cap_sol",

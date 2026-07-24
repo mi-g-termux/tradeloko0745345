@@ -228,3 +228,15 @@ create table if not exists email_log (
 create index if not exists email_log_time on email_log (created_at desc);
 
 alter table signals add column if not exists last_alert_multiple numeric;
+
+
+-- Admin-curated smart-money wallets for whale-buy signals.
+alter table admin_config add column if not exists whale_wallets text;
+create table if not exists whale_alerts (
+  signature text primary key,
+  wallet text,
+  label text,
+  token_address text,
+  created_at timestamptz not null default now()
+);
+create index if not exists whale_alerts_time on whale_alerts (created_at desc);

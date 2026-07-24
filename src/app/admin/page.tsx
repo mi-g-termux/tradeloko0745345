@@ -6,6 +6,7 @@ import { shortAddr } from "@/lib/format";
 interface Config {
   auto_buy_enabled: boolean;
   whale_tracking_enabled: boolean;
+  whale_wallets: string;
   x_feed_enabled: boolean;
   ai_enabled: boolean;
   telegram_alerts_enabled: boolean;
@@ -196,6 +197,24 @@ export default function AdminPage() {
           Use “Send to Telegram” on any token to broadcast its signal. Users set
           their own personal alert chat id on the Account page.
         </p>
+      </Section>
+
+      <Section title="Whale watchlist (smart money)">
+        <p className="text-xs text-slate-500">
+          One wallet address per line, with an optional label after the address
+          (for example: So1111... Alpha whale). When any of these wallets buys a
+          token, the whale-signal job runs the full analysis and, if the buy is
+          bullish and clears your safety and confidence gates, sends a Telegram
+          signal tagged with the whale. Requires Whale tracking ON, a Helius key,
+          and Telegram alerts configured above.
+        </p>
+        <textarea
+          value={cfg.whale_wallets ?? ""}
+          onChange={(e) => set("whale_wallets", e.target.value)}
+          rows={5}
+          placeholder="So11111111111111111111111111111111111111112  Whale label"
+          className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
+        />
       </Section>
 
       <Section title="Email notifications (SMTP)">

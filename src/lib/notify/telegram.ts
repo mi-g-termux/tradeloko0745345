@@ -118,6 +118,18 @@ export async function broadcastSignal(s: TradeSignal): Promise<boolean> {
   return send(signalText(s), tokenButtons(s.address));
 }
 
+export async function broadcastWhaleBuy(
+  label: string,
+  s: TradeSignal,
+  amountSol?: number,
+): Promise<boolean> {
+  const size = amountSol ? ` (~${amountSol.toFixed(2)} SOL)` : "";
+  const head = `🐋 <b>Whale buy</b> — ${label} just aped <b>$${s.symbol}</b>${size}
+
+`;
+  return send(head + signalText(s), tokenButtons(s.address));
+}
+
 export async function broadcastBuy(
   symbol: string,
   amountSol: number,
