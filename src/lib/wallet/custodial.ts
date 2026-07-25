@@ -1,6 +1,7 @@
 // Custodial wallet engine. Every user can generate an in-app Solana wallet,
-// deposit SOL to it, trade from it, and withdraw. Secret keys are encrypted at
-// rest (see crypto.ts) and only decrypted server-side to sign a transaction.
+// deposit SOL to it, trade from it, back up its private key, and withdraw.
+// Secret keys are encrypted at rest (see crypto.ts) and only decrypted
+// server-side to sign a transaction or to fulfil the user's own key export.
 import {
   Keypair,
   LAMPORTS_PER_SOL,
@@ -8,6 +9,7 @@ import {
   SystemProgram,
   Transaction,
 } from "@solana/web3.js";
+import bs58 from "bs58";
 import { getConnection } from "../solana/rpc";
 import { getServiceClient } from "../supabase";
 import { decryptSecret, encryptSecret, walletCryptoReady } from "./crypto";
@@ -83,6 +85,14 @@ export async function getOrCreateWallet(
     throw new Error(error.message);
   }
   return { publicKey: kp.publicKey.toBase58() };
+}
+
+/** Export the user's own private key (base58 for Phantom + raw byte array). */
+export async function exportSecretKey(
+  ownerId: string,
+): Promise<{ base58: string; array: number[] }> {
+  const kp = await getUserKeypair(ownerId);
+  return { base58: bs58.encode(kp.secretKey), array: Array.from(kp.secretKey) };
 }
 
 /** Decrypt and load the user's signing keypair. Throws if none / not enabled. */

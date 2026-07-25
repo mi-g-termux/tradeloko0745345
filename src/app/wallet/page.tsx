@@ -1,7 +1,8 @@
 "use client";
 
 // Custodial wallet management (Photon-style): balance, deposit address, quick
-// buy/sell, withdraw, and per-user auto-trade settings + activity history.
+// buy/sell, withdraw, private-key backup, and per-user auto-trade settings +
+// activity history.
 import { useCallback, useEffect, useState } from "react";
 import {
   Wallet,
@@ -14,6 +15,7 @@ import {
   ShoppingCart,
   Banknote,
   AlertTriangle,
+  KeyRound,
   Loader2,
 } from "lucide-react";
 
@@ -53,6 +55,9 @@ export default function WalletPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pk, setPk] = useState<string | null>(null);
+  const [pkArray, setPkArray] = useState<string>("");
+  const [pkCopied, setPkCopied] = useState(false);
 
   const [withdrawTo, setWithdrawTo] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState("");
@@ -92,6 +97,18 @@ export default function WalletPage() {
     navigator.clipboard.writeText(ov.publicKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function revealKey() {
+    setBusy("export");
+    setMsg(null);
+    const r = await fetch("/api/wallet/export", { method: "POST" }).then((x) => x.json());
+    setBusy(null);
+    if (r.error) setMsg({ ok: false, text: r.error });
+    else {
+      setPk(r.base58);
+      setPkArray(JSON.stringify(r.array));
+    }
   }
 
   async function doWithdraw() {
@@ -378,6 +395,65 @@ export default function WalletPage() {
                 Withdraw
               </button>
             </div>
+          </Card>
+
+          {/* Backup / export private key */}
+          <Card className="border-amber-500/30">
+            <p className="flex items-center gap-2 font-medium mb-2">
+              <KeyRound size={16} className="text-amber-400" /> Backup private key
+            </p>
+            <p className="text-xs text-slate-400 mb-3">
+              Export your wallet&apos;s private key and import it into Phantom,
+              Solflare, or Backpack — then you fully control the funds, independent
+              of this site. Whoever has this key owns the wallet: never share it, and
+              store it somewhere safe and offline.
+            </p>
+            {!pk ? (
+              <button
+                onClick={revealKey}
+                disabled={busy === "export"}
+                className="flex items-center gap-2 bg-base border border-amber-500/40 hover:border-amber-400 disabled:opacity-50 rounded-lg px-4 py-2 text-sm font-medium text-amber-200"
+              >
+                {busy === "export" ? <Loader2 className="animate-spin" size={15} /> : <KeyRound size={15} />}
+                Reveal private key
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 text-xs text-amber-300 bg-amber-500/10 rounded-lg px-3 py-2">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  Anyone with this key can take your funds. Copy it, store it safely,
+                  then hide it again.
+                </div>
+                <code className="block break-all text-xs bg-base border border-edge rounded-lg px-3 py-2 font-mono">
+                  {pk}
+                </code>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(pk);
+                      setPkCopied(true);
+                      setTimeout(() => setPkCopied(false), 1500);
+                    }}
+                    className="flex items-center gap-1 bg-base border border-edge hover:border-indigo-500 rounded-lg px-3 py-1.5 text-xs"
+                  >
+                    {pkCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                    {pkCopied ? "Copied" : "Copy key (Phantom format)"}
+                  </button>
+                  <button
+                    onClick={() => { setPk(null); setPkArray(""); }}
+                    className="bg-base border border-edge hover:border-red-500 rounded-lg px-3 py-1.5 text-xs"
+                  >
+                    Hide
+                  </button>
+                </div>
+                <details className="text-xs text-slate-500">
+                  <summary className="cursor-pointer">Byte-array format (Solana CLI / Solflare)</summary>
+                  <code className="block break-all bg-base border border-edge rounded-lg px-3 py-2 font-mono mt-1">
+                    {pkArray}
+                  </code>
+                </details>
+              </div>
+            )}
           </Card>
 
           {/* History */}
