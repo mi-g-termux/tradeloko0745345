@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCandles, type Timeframe } from "@/lib/data/candles";
 import { getTokenSummary } from "@/lib/data/dexscreener";
+import { guardPublicRoute } from "@/lib/security/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,11 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { address: string } },
 ) {
+  // These endpoints spend paid upstream quota (Helius/Birdeye/Gemini),
+  // so an unauthenticated scraper could run up the bill or exhaust it.
+  const limited = await guardPublicRoute(req, "candles", 120, 60);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const tf = (searchParams.get("tf") as Timeframe) || "hour";
   const aggregate = Number(searchParams.get("aggregate") ?? 1);

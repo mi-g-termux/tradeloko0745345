@@ -28,6 +28,6 @@ export async function POST(req: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: "Could not create user" }, { status: 500 });
   }
-  setSession(userId);
+  await setSession(userId);
   return NextResponse.json({ ok: true });
 }

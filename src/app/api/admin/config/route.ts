@@ -59,6 +59,10 @@ const PLAIN_KEYS = [
   "show_brand_name",
   "accent_color",
   "ads_enabled",
+  // Telegram buy button routing.
+  "tg_buy_route",
+  "tg_buy_ref",
+  "tg_buy_template",
 ];
 
 export async function GET() {

@@ -175,9 +175,9 @@ export default function PriceChart({
       {/* ── Plot ── */}
       <div className="relative">
         {loading ? (
-          <div className="skeleton m-2 h-[320px]" />
+          <div className="skeleton m-2 h-[220px] sm:h-[320px]" />
         ) : !view ? (
-          <div className="grid h-[320px] place-items-center px-4 text-center text-xs text-mute">
+          <div className="grid h-[220px] place-items-center px-4 text-center text-xs text-mute sm:h-[320px]">
             {err
               ? `No candles available: ${err}`
               : "No OHLCV history for this pair yet. Brand-new pools have no candles until they have traded for a few minutes — this is also why the signal engine holds a neutral call on them."}
@@ -186,7 +186,7 @@ export default function PriceChart({
           <svg
             ref={svgRef}
             viewBox={`0 0 ${W} ${H}`}
-            className="h-[320px] w-full"
+            className="h-[220px] w-full sm:h-[320px]"
             onMouseLeave={() => setHover(null)}
             onMouseMove={(e) => {
               const rect = svgRef.current?.getBoundingClientRect();

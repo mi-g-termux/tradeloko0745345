@@ -15,6 +15,11 @@ export const SERVER_ENV = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
   telegramChatIdEnv: process.env.TELEGRAM_CHAT_ID ?? "",
   bootstrapAdminWallet: process.env.BOOTSTRAP_ADMIN_WALLET ?? "",
+  // Break-glass admin recovery. If you lose access to the owner wallet, sign in
+  // with ANY method (Telegram, or a new wallet), open /recover and enter this
+  // value to promote that account to owner. Kept in the hosting dashboard
+  // (Vercel env vars), which you control independently of any wallet.
+  // Unset = the recovery route is disabled entirely and returns 404-style errors.
   sessionSecret: process.env.SESSION_SECRET ?? "dev-insecure-secret-change-me",
   // Master key that encrypts custodial wallet secret keys at rest (AES-256-GCM).
   // Set a 64-char hex string. If unset, in-app wallets are disabled.
@@ -32,7 +37,7 @@ export const SERVER_ENV = {
   appUrl:
     process.env.NEXT_PUBLIC_APP_URL ??
     process.env.APP_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""),
+    (process.env.VERCEL_URL ? "https://" + process.env.VERCEL_URL : ""),
   smtpHostEnv: process.env.SMTP_HOST ?? "",
   smtpPortEnv: process.env.SMTP_PORT ?? "",
   smtpUserEnv: process.env.SMTP_USER ?? "",
@@ -64,4 +69,40 @@ export function hasSupabase(): boolean {
 /** Absolute base URL used for links inside emails (localhost in dev). */
 export function appBaseUrl(): string {
   return SERVER_ENV.appUrl || "http://localhost:3000";
+}
+
+/**
+ * Absolute base URL, but ONLY when it is publicly reachable.
+ *
+ * `appBaseUrl()` falls back to http://localhost:3000 so local dev links still
+ * render. That fallback is poison for anything a *third party* clicks: a
+ * Telegram button pointing at localhost opens the reader's own machine and
+ * appears broken. Use this helper for outbound links and omit the link when it
+ * returns "".
+ */
+export function publicBaseUrl(): string {
+  const raw = (SERVER_ENV.appUrl || "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return "";
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+  const host = u.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host.startsWith("192.168.") ||
+    host.startsWith("10.") ||
+    host.endsWith(".local") ||
+    !host.includes(".")
+  ) {
+    return "";
+  }
+  return u.origin + (u.pathname === "/" ? "" : u.pathname);
 }

@@ -120,3 +120,70 @@ input[type="number"]::-webkit-inner-spin-button {
 input[type="number"] {
   -moz-appearance: textfield;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Mobile / small-screen rules
+   The UI is a dense DexScreener-style layout designed at 1600px.
+   These rules make it usable on a 390px phone without pretending
+   a 13-column table fits.
+   ───────────────────────────────────────────────────────────── */
+
+/* Never let a wide table or ticker push the whole page sideways. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* iOS: stop Safari inflating text in landscape. */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Momentum scrolling for the horizontal strips (metas ticker, chip rows). */
+.scroll-x {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  /* Tighter cells so 5 columns fit without truncating the price. */
+  .dtable thead th,
+  .dtable tbody td {
+    @apply px-1.5 py-2;
+  }
+
+  /* Sub-11px numbers are unreadable on a phone; bump the body text back up. */
+  .dtable {
+    font-size: 0.75rem;
+  }
+
+  /* Cards lose their desktop padding, which wasted ~15% of screen width. */
+  .card {
+    border-radius: 8px;
+  }
+
+  /* Apple/Google both call for ~44px touch targets. Inputs at 16px also stop
+     iOS Safari from zooming the viewport when a field is focused. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  button,
+  [role="button"],
+  a.btn {
+    min-height: 36px;
+  }
+}
+
+/* Respect users who ask for less motion: kill the flash/shimmer animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

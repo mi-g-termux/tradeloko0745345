@@ -398,6 +398,7 @@ export function SortTh<T extends string>({
   onSort,
   align = "right",
   title,
+  className,
 }: {
   col: T;
   label: string;
@@ -406,13 +407,20 @@ export function SortTh<T extends string>({
   onSort: (c: T) => void;
   align?: "left" | "right";
   title?: string;
+  /** Responsive visibility, e.g. "hidden md:table-cell" to drop it on phones. */
+  className?: string;
 }) {
   const active = sort === col;
   return (
     <th
       title={title}
       onClick={() => onSort(col)}
-      className={cx("th-sort", align === "right" && "text-right", active && "text-ink")}
+      className={cx(
+        "th-sort",
+        align === "right" && "text-right",
+        active && "text-ink",
+        className,
+      )}
     >
       {label}
       <span className={cx("ml-1", active ? "text-accent" : "text-transparent")}>

@@ -332,7 +332,7 @@ export default function WalletPage() {
                 signals from your wallet, within the caps below and the admin safety
                 gate.
               </p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <label className="text-xs text-slate-400">
                   Max / buy (SOL)
                   <input

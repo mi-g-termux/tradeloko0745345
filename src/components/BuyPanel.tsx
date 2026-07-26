@@ -80,7 +80,7 @@ export function BuyPanel({ address, symbol }: { address: string; symbol: string 
         This app never holds your keys. Review the quote before signing.
       </p>
       <a
-        href={`https://pump.fun/${address}`}
+        href={`https://pump.fun/coin/${address}`}
         target="_blank"
         rel="noreferrer"
         className="mb-3 inline-block text-xs text-indigo-400 hover:text-indigo-300"

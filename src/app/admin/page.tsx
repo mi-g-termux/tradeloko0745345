@@ -46,6 +46,9 @@ interface Config {
   gemini_api_key: string;
   telegram_bot_token: string;
   telegram_chat_id: string;
+  tg_buy_route: string;
+  tg_buy_ref: string;
+  tg_buy_template: string;
   rpc_url: string;
   max_buy_sol: number;
   daily_spend_cap_sol: number;
@@ -1069,6 +1072,77 @@ function AlertsTab({ cfg, set }: { cfg: Config; set: Setter }) {
             className="font-mono"
           />
         </Field>
+
+        <div className="mt-3 border-t border-edge pt-3">
+          <div className="mb-2 text-2xs font-semibold uppercase tracking-wide text-mute">
+            Buy button
+          </div>
+          <Field
+            label="Where the Buy button sends people"
+            hint="Jupiter is the safe default: it works on every device for every SPL token."
+          >
+            <select
+              className={inputClass}
+              value={cfg.tg_buy_route ?? "jupiter"}
+              onChange={(e) => set("tg_buy_route", e.target.value)}
+            >
+              <option value="jupiter">Jupiter (web swap)</option>
+              <option value="bonkbot">BONKbot (Telegram, mobile only)</option>
+              <option value="trojan">Trojan (Telegram, mobile only)</option>
+              <option value="gmgn">GMGN (web)</option>
+              <option value="custom">Custom URL template</option>
+              <option value="app">This site's trade page</option>
+            </select>
+          </Field>
+
+          {(cfg.tg_buy_route === "bonkbot" ||
+            cfg.tg_buy_route === "trojan") && (
+            <div className="mb-2 rounded-card border border-warn/40 bg-warn/10 p-2 text-2xs text-mute">
+              Telegram bot deeplinks do not work on Telegram Desktop — that is a
+              Telegram limitation, not a bug here. A Jupiter web link is added
+              automatically alongside it so desktop readers still have a working
+              buy link.
+            </div>
+          )}
+
+          {cfg.tg_buy_route === "app" && (
+            <div className="mb-2 rounded-card border border-warn/40 bg-warn/10 p-2 text-2xs text-mute">
+              Requires NEXT_PUBLIC_APP_URL to be set to your public domain. If it
+              is unset the button is replaced with a Jupiter link rather than a
+              dead localhost link.
+            </div>
+          )}
+
+          {(cfg.tg_buy_route === "bonkbot" ||
+            cfg.tg_buy_route === "trojan" ||
+            cfg.tg_buy_route === "custom") && (
+            <Field
+              label="Referral code (optional)"
+              hint="Attached to the buy link so you earn a share of the fees."
+            >
+              <TextInput
+                value={cfg.tg_buy_ref ?? ""}
+                onChange={(e) => set("tg_buy_ref", e.target.value)}
+                className="font-mono"
+                placeholder="yourcode"
+              />
+            </Field>
+          )}
+
+          {cfg.tg_buy_route === "custom" && (
+            <Field
+              label="URL template"
+              hint="Use {ca} for the token mint and {ref} for your referral code."
+            >
+              <TextInput
+                value={cfg.tg_buy_template ?? ""}
+                onChange={(e) => set("tg_buy_template", e.target.value)}
+                className="font-mono"
+                placeholder="https://photon-sol.tinyastro.io/en/r/{ref}/{ca}"
+              />
+            </Field>
+          )}
+        </div>
       </Card>
 
       <Card title="Email (SMTP)" hint="Save first, then send a test. The test bypasses the on/off switch.">

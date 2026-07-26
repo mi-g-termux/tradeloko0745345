@@ -15,11 +15,17 @@ import {
   getPinnedTokens,
 } from "@/lib/data/discovery";
 import type { TokenSummary } from "@/lib/types";
+import { guardPublicRoute } from "@/lib/security/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(req: NextRequest) {
+  // These endpoints spend paid upstream quota (Helius/Birdeye/Gemini),
+  // so an unauthenticated scraper could run up the bill or exhaust it.
+  const limited = await guardPublicRoute(req, "tokens", 120, 60);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim();
   const sort = (searchParams.get("sort") as ScanSort) || "trending";

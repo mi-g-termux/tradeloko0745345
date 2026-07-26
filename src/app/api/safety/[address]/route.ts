@@ -2,13 +2,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeSafety } from "@/lib/data/safety";
 import { getServiceClient } from "@/lib/supabase";
+import { guardPublicRoute } from "@/lib/security/rateLimit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { address: string } },
 ) {
+  // These endpoints spend paid upstream quota (Helius/Birdeye/Gemini),
+  // so an unauthenticated scraper could run up the bill or exhaust it.
+  const limited = await guardPublicRoute(req, "safety", 60, 60);
+  if (limited) return limited;
+
   try {
     const report = await analyzeSafety(params.address);
     // Best-effort cache (ignored if Supabase not configured).

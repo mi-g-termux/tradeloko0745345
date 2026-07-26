@@ -129,9 +129,10 @@ Most keys can also be set at runtime in the **Admin panel** (stored in
 2. **Local**: `npm install` then `npm run dev`.
 3. **First login = owner**: open the site, connect wallet (or Telegram) and sign.
    Open **Admin** to configure keys/toggles.
-4. **Vercel**: import the repo, add env vars, deploy. Cron jobs in `vercel.json`
-   run automatically (scan 15m, outcomes 20m, copytrade 5m, keeper 3m, holders
-   6h).
+4. **Vercel**: import the repo, add env vars, deploy. Then set `CRON_SECRET` and
+   schedule the nine `/api/cron/*` URLs on **cron-job.org** (copy-paste cards in
+   Admin -> Automation). `vercel.json` has no `crons` array on purpose: Hobby
+   allows only one run per day and rejects anything more frequent at deploy time.
 5. **Backend note**: this is a single Next.js app - frontend + API run together
    on Vercel; Supabase is the database/backend. There is no separate backend
    server to deploy. If self-hosting (Render/cPanel), run `npm run build && npm
@@ -149,9 +150,10 @@ Most keys can also be set at runtime in the **Admin panel** (stored in
    price alerts. Trade emails and price alerts are then delivered automatically.
 
 ### Deploy on Vercel (recommended)
-- Import the repo, add all env vars, deploy. `vercel.json` schedules every cron
-  automatically (scan 15m, outcomes 20m, copytrade 5m, keeper 3m, holders 6h,
-  **price-alerts 2m**). Set `CRON_SECRET`; Vercel sends it as the bearer token.
+- Import the repo, add all env vars, deploy. Set `CRON_SECRET`, then drive every
+  cadence from cron-job.org (scan 15m, signal-updates 15m, price-alerts 5m,
+  keeper 5m, whale-signals 10m, copytrade 10m, user-autotrade 15m, outcomes 30m,
+  holders 60m). Vercel Hobby crons cannot do sub-daily schedules.
 - `NEXT_PUBLIC_APP_URL` is auto-detected from `VERCEL_URL`.
 
 ### Deploy on Render
@@ -193,7 +195,7 @@ src/components/     Nav, AuthButton, BuyPanel, SignalPanel, TopHolders,
                     FeatureGrid, WelcomePanel, LiveLaunches, PwaRegister
 supabase/schema.sql database schema (run this)
 public/             manifest.webmanifest, sw.js
-vercel.json         cron schedule
+vercel.json         Vercel config (no crons - cron-job.org drives all schedules)
 ```
 
 ---

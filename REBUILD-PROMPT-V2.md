@@ -175,3 +175,37 @@ V2: `src/lib/cron/runner.ts`
 `supabase/schema.sql` is idempotent; v2 appends 7 `admin_config` columns,
 `site_ads` + index, `bump_ad_counter()`, `cron_runs` + index, and
 `prune_cron_runs()`.
+
+## 10. Telegram buy button (v2.1)
+
+Bug: `tokenButtons()` built `⚡ Trade` from `appBaseUrl()`, which falls back to
+`http://localhost:3000` when no app URL env var is set — a rendered button that
+resolves to the reader's own machine. It also linked `pump.fun/<mint>` for every
+token (404 for non-pump.fun tokens) and `sendTo()` swallowed Telegram's error
+body, so `BUTTON_URL_INVALID` was invisible.
+
+Fix:
+
+- `src/lib/config.ts` → `publicBaseUrl()`: like `appBaseUrl()` but returns `""`
+  for localhost / `127.0.0.1` / private LAN / `.local` / TLD-less hosts. Use it
+  for anything a third party clicks.
+- `src/lib/notify/buyLinks.ts` → `isTelegramSafeUrl()`, `buildBuyLinks()`,
+  `primaryBuyLink()`, plus per-route builders (`jupiterBuyUrl`, `bonkbotUrl`,
+  `trojanUrl`, `gmgnUrl`, `customUrl`, `dexscreenerUrl`) and the `BUY_ROUTES`
+  catalogue. Invalid URLs are dropped, never emitted.
+- Routes: `jupiter` (default, `https://jup.ag/swap/SOL-<mint>`), `bonkbot`
+  (`?start=ref_<code>_ca_<mint>`), `trojan` (`?start=r-<ref>-<mint>`), `gmgn`,
+  `custom` (`{ca}` / `{ref}` template), `app`.
+- A web buy link is force-appended whenever the chosen route is a Telegram bot,
+  because bot deeplinks are documented as non-functional on Telegram Desktop.
+- `signalText()` embeds the primary buy link as an HTML anchor, so the alert is
+  actionable even without an inline keyboard.
+- `sendTo()` logs Telegram's `description` and retries once without
+  `reply_markup` so one bad button cannot lose the signal.
+- `buyButtonPreview(sampleMint)` exposes the resolved URLs to the admin panel.
+- New `admin_config` columns `tg_buy_route`, `tg_buy_ref`, `tg_buy_template`
+  (added to `PLAIN_KEYS`, `AdminConfig`, DEFAULTS, and the Alerts tab UI with
+  inline desktop/app-URL warnings).
+- Web UI: stale `pump.fun/<mint>` links updated to the canonical
+  `pump.fun/coin/<mint>` in `token/[address]/page.tsx` and `BuyPanel.tsx`.
+  These stay pump.fun on purpose — they are the pre-graduation paths.

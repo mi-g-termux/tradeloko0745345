@@ -107,6 +107,15 @@ export function AuthButton() {
         <Wallet size={15} />
         {busy ? "Connecting…" : "Connect Wallet"}
       </button>
+      {/* Escape hatch for admins on a device without their wallet. Kept subtle:
+          regular users should still sign in with a wallet. */}
+      <a
+        href="/signin"
+        title="Admins: sign in with an emailed code instead"
+        className="text-xs text-slate-400 hover:text-white whitespace-nowrap"
+      >
+        Email
+      </a>
     </div>
   );
 }

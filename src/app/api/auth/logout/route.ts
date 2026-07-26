@@ -5,6 +5,6 @@ import { clearSession } from "@/lib/auth/session";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  clearSession();
+  await clearSession();
   return NextResponse.json({ ok: true });
 }

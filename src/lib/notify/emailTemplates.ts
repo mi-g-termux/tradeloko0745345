@@ -250,3 +250,45 @@ export function testEmail(appUrl: string): BuiltEmail {
     text: `${BRAND} SMTP test succeeded. Your email notifications are configured correctly.`,
   };
 }
+
+/**
+ * Sign-in code (admin login from any device, no wallet required).
+ *
+ * Deliberately plain: one big code, an expiry, and a warning. No CTA button,
+ * because a click-to-login link in email can be followed by scanners/proxies
+ * and would let anyone with inbox access in silently. A typed code requires
+ * a human.
+ */
+export function loginCodeEmail(opts: {
+  code: string;
+  appUrl: string;
+  minutes: number;
+}): BuiltEmail {
+  const { code, appUrl, minutes } = opts;
+  const bodyRows = `
+  <tr><td style="padding:6px 24px 2px 24px;">${pill("Sign-in code", INDIGO)}</td></tr>
+  <tr><td style="padding:8px 24px 2px 24px;color:${TEXT};font-size:20px;font-weight:700;">Your ${BRAND} sign-in code</td></tr>
+  <tr><td style="padding:2px 24px 10px 24px;color:${MUTED};font-size:13px;line-height:1.6;">
+    Enter this code on the sign-in page to access your account. It expires in
+    ${esc(minutes)} minutes and can only be used once.
+  </td></tr>
+  <tr><td style="padding:6px 24px 18px 24px;">
+    <div style="background:${BG};border:1px solid ${EDGE};border-radius:12px;padding:18px;text-align:center;color:${TEXT};font-size:32px;font-weight:800;letter-spacing:.28em;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;">${esc(code)}</div>
+  </td></tr>
+  <tr><td style="padding:0 24px 18px 24px;color:${MUTED};font-size:12px;line-height:1.6;">
+    <b style="color:${AMBER};">If you did not request this,</b> ignore this email — nothing has changed and
+    no one can access your account without this code. If you keep receiving codes you did not
+    request, someone knows your email address: change it in Account &amp; alerts.
+  </td></tr>`;
+  const html = shell({
+    accent: INDIGO,
+    preheader: `Your ${BRAND} sign-in code: ${code}`,
+    bodyRows,
+    appUrl,
+  });
+  return {
+    subject: `${BRAND} sign-in code: ${code}`,
+    html,
+    text: `Your ${BRAND} sign-in code is ${code}. It expires in ${minutes} minutes and can only be used once. If you did not request it, ignore this email.`,
+  };
+}

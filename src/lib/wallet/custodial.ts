@@ -12,7 +12,12 @@ import {
 import bs58 from "bs58";
 import { getConnection } from "../solana/rpc";
 import { getServiceClient } from "../supabase";
-import { decryptSecret, encryptSecret, walletCryptoReady } from "./crypto";
+import {
+  decryptSecret,
+  encryptSecret,
+  needsUpgrade,
+  walletCryptoReady,
+} from "./crypto";
 
 // Keep a little SOL behind for rent + network fees on any outbound transfer.
 const FEE_BUFFER_SOL = 0.003;
@@ -72,7 +77,10 @@ export async function getOrCreateWallet(
   if (existing) return { publicKey: existing };
 
   const kp = Keypair.generate();
-  const secret_enc = encryptSecret(kp.secretKey);
+  // Keys are bound to the owner: the ciphertext only decrypts under a key
+  // derived from this user's id, so a swapped database row cannot redirect
+  // signing to a different wallet.
+  const secret_enc = encryptSecret(kp.secretKey, ownerId);
   const { error } = await db.from("user_wallets").insert({
     owner_id: ownerId,
     public_key: kp.publicKey.toBase58(),
@@ -106,7 +114,23 @@ export async function getUserKeypair(ownerId: string): Promise<Keypair> {
     .eq("owner_id", ownerId)
     .maybeSingle();
   if (!data?.secret_enc) throw new Error("No wallet exists for this user.");
-  return Keypair.fromSecretKey(decryptSecret(data.secret_enc));
+  const secret = decryptSecret(data.secret_enc, ownerId);
+
+  // Lazy migration: rows still encrypted under the old single global key are
+  // re-encrypted with this user's derived key the first time they are used.
+  // Best-effort by design - a failed upgrade must never block a trade.
+  if (needsUpgrade(data.secret_enc)) {
+    try {
+      await db
+        .from("user_wallets")
+        .update({ secret_enc: encryptSecret(secret, ownerId) })
+        .eq("owner_id", ownerId);
+    } catch {
+      /* keep going: the legacy ciphertext still decrypts */
+    }
+  }
+
+  return Keypair.fromSecretKey(secret);
 }
 
 export async function getSolBalance(publicKey: string): Promise<number> {

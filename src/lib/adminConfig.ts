@@ -47,6 +47,12 @@ export interface AdminConfig {
   accentColor: string;
   // ── Ads ──
   adsEnabled: boolean;
+  // ── Telegram buy button ──
+  // Which buy route the signal's buy button points at, the referral code to
+  // attach, and a template for routes we don't hardcode.
+  tgBuyRoute: string;
+  tgBuyRef: string;
+  tgBuyTemplate: string;
 }
 
 const DEFAULTS: AdminConfig = {
@@ -91,6 +97,11 @@ const DEFAULTS: AdminConfig = {
   showBrandName: true,
   accentColor: "",
   adsEnabled: false,
+  // Jupiter is the default because it needs no referral code, no bot setup and
+  // works on every device for every SPL mint.
+  tgBuyRoute: "jupiter",
+  tgBuyRef: "",
+  tgBuyTemplate: "",
 };
 
 let cache: { value: AdminConfig; expiry: number } | null = null;
@@ -173,6 +184,9 @@ export async function getAdminConfig(): Promise<AdminConfig> {
         data.show_brand_name == null ? true : Boolean(data.show_brand_name);
       merged.accentColor = data.accent_color ?? "";
       merged.adsEnabled = Boolean(data.ads_enabled);
+      merged.tgBuyRoute = data.tg_buy_route || DEFAULTS.tgBuyRoute;
+      merged.tgBuyRef = data.tg_buy_ref ?? "";
+      merged.tgBuyTemplate = data.tg_buy_template ?? "";
     }
   }
 

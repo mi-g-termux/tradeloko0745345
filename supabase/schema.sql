@@ -352,3 +352,179 @@ create or replace function prune_cron_runs()
 returns void language sql as $$
   delete from cron_runs where created_at < now() - interval '7 days';
 $$;
+
+-- ── Telegram buy button routing (v2.1) ──
+-- Which destination the "Buy" button in a Telegram signal points at, plus the
+-- referral code and a URL template for routes that aren't hardcoded.
+alter table admin_config add column if not exists tg_buy_route text default 'jupiter';
+alter table admin_config add column if not exists tg_buy_ref text default '';
+alter table admin_config add column if not exists tg_buy_template text default '';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- v2.2 — Email sign-in codes (admin login from any device, no wallet needed)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- One row per requested login code. The plaintext code is NEVER stored: only a
+-- SHA-256 hash, so a database leak cannot be used to sign in.
+create table if not exists email_login_codes (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  code_hash text not null,
+  user_id uuid references app_users(id) on delete cascade,
+  expires_at timestamptz not null,
+  used boolean not null default false,
+  attempts integer not null default 0,
+  requested_ip text,
+  created_at timestamptz not null default now()
+);
+
+-- Lookup path for verification (newest unused code for an address).
+create index if not exists email_login_codes_lookup
+  on email_login_codes (lower(email), created_at desc);
+
+-- Sign-in resolves users by email, so make that lookup fast and
+-- case-insensitive. Not unique: existing rows may legitimately share/blank it.
+create index if not exists app_users_email_lower
+  on app_users (lower(email));
+
+
+-- =====================================================================
+-- v2.3  SECURITY HARDENING
+-- Safe to re-run: everything below is create/alter "if not exists".
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 1. Revocable server-side sessions
+--
+-- The session cookie used to be a self-contained signed string, which meant a
+-- stolen cookie could not be invalidated. Now the cookie holds a random token
+-- and only its SHA-256 hash is stored here, so this table is not replayable as
+-- a login even if the database leaks.
+-- ---------------------------------------------------------------------
+create table if not exists user_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references app_users (id) on delete cascade,
+  token_hash text not null unique,
+  created_at timestamptz not null default now(),
+  last_seen_at timestamptz,
+  expires_at timestamptz not null,
+  revoked boolean not null default false,
+  revoked_at timestamptz,
+  user_agent text,
+  ip text
+);
+
+-- Every authenticated request looks a session up by hash.
+create index if not exists user_sessions_token on user_sessions (token_hash);
+create index if not exists user_sessions_user on user_sessions (user_id, revoked);
+
+-- ---------------------------------------------------------------------
+-- 2. Shared rate-limit counters
+--
+-- In-memory counters do not work on serverless: each instance has its own and
+-- they vanish on cold start. Attempts are counted here so the limit is real.
+-- ---------------------------------------------------------------------
+create table if not exists rate_hits (
+  id bigserial primary key,
+  bucket text not null,
+  identifier text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists rate_hits_lookup
+  on rate_hits (bucket, identifier, created_at desc);
+
+-- ---------------------------------------------------------------------
+-- 3. Withdrawal confirmation codes
+--
+-- code_hash covers destination + amount + code, so an approval for one transfer
+-- cannot be replayed for a different one.
+-- ---------------------------------------------------------------------
+create table if not exists withdraw_confirmations (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references app_users (id) on delete cascade,
+  code_hash text not null,
+  to_address text not null,
+  amount_sol numeric not null,
+  expires_at timestamptz not null,
+  used boolean not null default false,
+  used_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists withdraw_confirmations_lookup
+  on withdraw_confirmations (owner_id, code_hash, used);
+
+-- ---------------------------------------------------------------------
+-- 4. Per-user withdrawal limits
+--
+-- Defaults are deliberately restrictive: a user who never opens settings still
+-- gets a ceiling on how much can leave in one transfer and per 24 hours.
+-- ---------------------------------------------------------------------
+alter table user_trade_settings
+  add column if not exists max_withdraw_sol numeric not null default 5;
+alter table user_trade_settings
+  add column if not exists daily_withdraw_cap_sol numeric not null default 10;
+alter table user_trade_settings
+  add column if not exists withdraw_confirm_required boolean not null default false;
+alter table user_trade_settings
+  add column if not exists withdraw_allowlist jsonb not null default '[]'::jsonb;
+
+-- ---------------------------------------------------------------------
+-- 5. Row Level Security on every table
+--
+-- HOW THIS WORKS, AND WHY IT MATTERS
+-- The anon key is public: it ships to the browser. Until now, RLS was off, so
+-- anyone who read the anon key out of the page source could query these tables
+-- directly through the Supabase REST endpoint and read wallets, sessions and
+-- user records. Enabling RLS with no policies means "deny everything" for the
+-- anon and authenticated roles.
+--
+-- The app is unaffected: every server query uses the SERVICE ROLE key, which
+-- bypasses RLS by design. So this closes the public door without adding any
+-- policy the application has to satisfy.
+--
+-- Keep SUPABASE_SERVICE_ROLE_KEY server-side only. Never expose it to the
+-- browser or prefix it with NEXT_PUBLIC_.
+-- ---------------------------------------------------------------------
+alter table app_users              enable row level security;
+alter table auth_nonces            enable row level security;
+alter table admin_config           enable row level security;
+alter table site_ads               enable row level security;
+alter table cron_runs              enable row level security;
+alter table user_wallets           enable row level security;
+alter table wallet_transactions    enable row level security;
+alter table user_trade_settings    enable row level security;
+alter table watchlist              enable row level security;
+alter table price_alerts           enable row level security;
+alter table signals                enable row level security;
+alter table buy_orders             enable row level security;
+alter table limit_orders           enable row level security;
+alter table tracked_wallets        enable row level security;
+alter table whale_alerts           enable row level security;
+alter table holder_snapshots       enable row level security;
+alter table safety_cache           enable row level security;
+alter table token_searches         enable row level security;
+alter table email_log              enable row level security;
+alter table email_login_codes      enable row level security;
+alter table user_sessions          enable row level security;
+alter table rate_hits              enable row level security;
+alter table withdraw_confirmations enable row level security;
+
+-- ---------------------------------------------------------------------
+-- 6. Housekeeping
+--
+-- rate_hits and expired codes/sessions grow forever otherwise. The
+-- /api/cron/outcomes job calls this, so no extra scheduler entry is needed.
+-- ---------------------------------------------------------------------
+create or replace function purge_security_rows()
+returns void
+language sql
+as $$
+  delete from rate_hits where created_at < now() - interval '2 days';
+  delete from user_sessions
+    where expires_at < now() - interval '7 days'
+       or (revoked and revoked_at < now() - interval '7 days');
+  delete from withdraw_confirmations where expires_at < now() - interval '1 day';
+  delete from email_login_codes where expires_at < now() - interval '1 day';
+$$;

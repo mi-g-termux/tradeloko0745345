@@ -1,16 +1,37 @@
-// Telegram alerts — real Telegram Bot API. Broadcasts are gated behind the admin
-// toggle + bot token + chat id. Per-user alerts go to each user's saved chat id.
-// Signal messages include price, market cap, a buy zone, take-profit targets, a
-// stop level, a tap-to-copy contract address, and quick Trade/Chart buttons.
-// Auto follow-up "pump" updates fire when an alerted token climbs (2x/3x/...).
-import { getAdminConfig } from "../adminConfig";
+// Telegram alerts — real Telegram Bot API.
+//
+// Buy-button behaviour (the thing that was broken):
+//   * The old keyboard's "Trade" button used appBaseUrl(), which silently falls
+//     back to http://localhost:3000. That renders as a button but resolves to
+//     the *reader's own device*, so it did nothing. Now every URL is validated
+//     by isTelegramSafeUrl() and dropped if it isn't publicly reachable.
+//   * It also linked pump.fun for every token, which 404s for tokens that
+//     didn't launch there. Replaced with a real, admin-selected buy route
+//     (Jupiter by default) that works for any SPL mint.
+//   * Telegram trading-bot deeplinks don't work on Telegram Desktop, so a web
+//     buy link is always included alongside them.
+//   * The buy link is ALSO written into the message body as an HTML anchor, so
+//     the alert stays actionable even if the inline keyboard is rejected.
+//   * sendTo() now surfaces Telegram's error description instead of swallowing
+//     it, and retries once without the keyboard so a bad button can never
+//     silently kill the whole alert.
+import { getAdminConfig, type AdminConfig } from "../adminConfig";
 import { getServiceClient } from "../supabase";
-import { appBaseUrl } from "../config";
+import {
+  buildBuyLinks,
+  primaryBuyLink,
+  dexscreenerUrl,
+  isTelegramSafeUrl,
+  type BuyLink,
+} from "./buyLinks";
+import { publicBaseUrl } from "../config";
 import type { TradeSignal } from "../types";
 
 type InlineKeyboard = {
   inline_keyboard: Array<Array<Record<string, unknown>>>;
 };
+
+const TG_API = "https://api.telegram.org/bot";
 
 /** Low-level send to a specific chat id using a specific bot token. */
 async function sendTo(
@@ -20,8 +41,9 @@ async function sendTo(
   replyMarkup?: InlineKeyboard,
 ): Promise<boolean> {
   if (!botToken || !chatId) return false;
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-  try {
+  const url = TG_API + botToken + "/sendMessage";
+
+  const post = async (markup?: InlineKeyboard) => {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -30,11 +52,46 @@ async function sendTo(
         text,
         parse_mode: "HTML",
         disable_web_page_preview: true,
-        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        ...(markup ? { reply_markup: markup } : {}),
       }),
     });
-    return res.ok;
-  } catch {
+    let description = "";
+    try {
+      const body = (await res.json()) as { ok?: boolean; description?: string };
+      description = body?.description ?? "";
+    } catch {
+      description = "";
+    }
+    return { ok: res.ok, description };
+  };
+
+  try {
+    const first = await post(replyMarkup);
+    if (first.ok) return true;
+
+    console.error(
+      "[telegram] sendMessage failed:",
+      first.description || "(no description)",
+    );
+
+    // A rejected button must not cost us the whole alert. The message body
+    // already carries the buy link as a plain anchor.
+    if (replyMarkup) {
+      const retry = await post(undefined);
+      if (retry.ok) {
+        console.error(
+          "[telegram] delivered without inline keyboard; check button URLs",
+        );
+        return true;
+      }
+      console.error(
+        "[telegram] retry without keyboard also failed:",
+        retry.description || "(no description)",
+      );
+    }
+    return false;
+  } catch (e) {
+    console.error("[telegram] sendMessage threw:", (e as Error).message);
     return false;
   }
 }
@@ -49,6 +106,19 @@ async function send(
   return sendTo(cfg.telegramBotToken, cfg.telegramChatId, text, replyMarkup);
 }
 
+/**
+ * Security notice to the broadcast chat.
+ *
+ * Deliberately does NOT check `telegramAlertsEnabled`: that switch governs
+ * trading noise, and silencing a "someone just took ownership of your site"
+ * warning because market alerts were turned off would be a security hole.
+ * Still a no-op when no bot token / chat id is configured.
+ */
+export async function sendAdminAlert(text: string): Promise<boolean> {
+  const cfg = await getAdminConfig();
+  return sendTo(cfg.telegramBotToken, cfg.telegramChatId, text);
+}
+
 function emoji(direction: string): string {
   return direction === "bullish" ? "🟢" : direction === "bearish" ? "🔴" : "⚪";
 }
@@ -61,23 +131,47 @@ function usdCompact(n: number | null | undefined): string {
   return `$${n.toPrecision(4)}`;
 }
 
-/** Quick-action buttons: trade on the app, chart, pump.fun, copy CA. */
-function tokenButtons(address: string): InlineKeyboard {
-  return {
-    inline_keyboard: [
-      [
-        { text: "⚡ Trade", url: `${appBaseUrl()}/token/${address}` },
-        { text: "📈 Chart", url: `https://dexscreener.com/solana/${address}` },
-      ],
-      [
-        { text: "🔗 Pump.fun", url: `https://pump.fun/${address}` },
-        { text: "📋 Copy CA", copy_text: { text: address } },
-      ],
-    ],
-  };
+function anchor(label: string, url: string): string {
+  return '<a href="' + url + '">' + label + "</a>";
 }
 
-function signalText(s: TradeSignal): string {
+/**
+ * Quick-action buttons. Every URL is validated, so an unreachable destination
+ * produces no button rather than a dead one.
+ */
+function tokenButtons(address: string, cfg: AdminConfig): InlineKeyboard {
+  const rows: Array<Array<Record<string, unknown>>> = [];
+  const buys = buildBuyLinks(address, cfg);
+
+  // Row 1: the buy routes (at most two side by side).
+  const buyRow = buys
+    .slice(0, 2)
+    .map((l: BuyLink) => ({ text: l.label, url: l.url }));
+  if (buyRow.length) rows.push(buyRow);
+
+  // Row 2: chart + this site's token page, when the site has a public URL.
+  const row2: Array<Record<string, unknown>> = [
+    { text: "📈 Chart", url: dexscreenerUrl(address) },
+  ];
+  const base = publicBaseUrl();
+  if (base) {
+    const appUrl = base + "/token/" + address;
+    if (isTelegramSafeUrl(appUrl)) {
+      row2.push({ text: "📊 Full analysis", url: appUrl });
+    }
+  }
+  rows.push(row2.filter((b) => isTelegramSafeUrl(String(b.url))));
+
+  // Row 3: tap-to-copy contract address.
+  rows.push([{ text: "📋 Copy CA", copy_text: { text: address } }]);
+
+  return { inline_keyboard: rows.filter((r) => r.length > 0) };
+}
+
+function signalText(s: TradeSignal, cfg: AdminConfig): string {
+  const buys = buildBuyLinks(s.address, cfg);
+  const primary = primaryBuyLink(buys);
+
   const lines = [
     `${emoji(s.direction)} <b>$${s.symbol}</b> — ${s.direction.toUpperCase()} signal`,
     "━━━━━━━━━━━━━",
@@ -86,13 +180,17 @@ function signalText(s: TradeSignal): string {
     `🎯 Confidence: <b>${s.confidence}%</b> (score ${s.score})`,
     s.safetyScore != null ? `🛡 Safety: ${s.safetyScore}/100` : "",
     "",
-    s.suggestedEntry ? `📥 <b>Buy:</b> ${s.suggestedEntry}` : "",
+    s.suggestedEntry ? `📥 <b>Buy zone:</b> ${s.suggestedEntry}` : "",
     s.targets && s.targets.length
       ? `🎯 <b>Targets:</b> ${s.targets.join("  •  ")}`
       : "",
     s.stopLoss ? `🛑 <b>Stop:</b> ${s.stopLoss}` : "",
     s.invalidation ? `⚠ ${s.invalidation}` : "",
     s.ai ? `\n🤖 AI: ${s.ai.lean} (${s.ai.confidence}%) — ${s.ai.reasoning}` : "",
+    "",
+    // Plain-text buy link: survives clients that strip inline keyboards, and
+    // works on Telegram Desktop where bot deeplinks do not.
+    primary ? `👉 ${anchor("Buy " + s.symbol + " now", primary.url)}` : "",
     "",
     "Contract (tap to copy):",
     `<code>${s.address}</code>`,
@@ -114,8 +212,26 @@ export async function telegramReady(): Promise<{
   };
 }
 
+/**
+ * Preview of what the buy button will point at, for the admin panel. Lets an
+ * admin see the exact URL before broadcasting instead of discovering it's dead.
+ */
+export async function buyButtonPreview(sampleMint: string): Promise<{
+  route: string;
+  links: BuyLink[];
+  appUrlConfigured: boolean;
+}> {
+  const cfg = await getAdminConfig();
+  return {
+    route: cfg.tgBuyRoute,
+    links: buildBuyLinks(sampleMint, cfg),
+    appUrlConfigured: Boolean(publicBaseUrl()),
+  };
+}
+
 export async function broadcastSignal(s: TradeSignal): Promise<boolean> {
-  return send(signalText(s), tokenButtons(s.address));
+  const cfg = await getAdminConfig();
+  return send(signalText(s, cfg), tokenButtons(s.address, cfg));
 }
 
 export async function broadcastWhaleBuy(
@@ -123,11 +239,10 @@ export async function broadcastWhaleBuy(
   s: TradeSignal,
   amountSol?: number,
 ): Promise<boolean> {
+  const cfg = await getAdminConfig();
   const size = amountSol ? ` (~${amountSol.toFixed(2)} SOL)` : "";
-  const head = `🐋 <b>Whale buy</b> — ${label} just aped <b>$${s.symbol}</b>${size}
-
-`;
-  return send(head + signalText(s), tokenButtons(s.address));
+  const head = `🐋 <b>Whale buy</b> — ${label} just aped <b>$${s.symbol}</b>${size}\n\n`;
+  return send(head + signalText(s, cfg), tokenButtons(s.address, cfg));
 }
 
 export async function broadcastBuy(
@@ -153,6 +268,9 @@ export async function broadcastSignalPump(
   priceUsd: number | null,
   marketCap: number | null,
 ): Promise<boolean> {
+  const cfg = await getAdminConfig();
+  const buys = buildBuyLinks(address, cfg);
+  const primary = primaryBuyLink(buys);
   const text = [
     `🚀 <b>$${symbol}</b> is up <b>${multiple}x</b> since the signal!`,
     "━━━━━━━━━━━━━",
@@ -160,12 +278,16 @@ export async function broadcastSignalPump(
     `📊 Market cap: <b>${usdCompact(marketCap)}</b>`,
     "",
     "Consider taking some profit. 💸",
+    primary ? `\n👉 ${anchor("Trade " + symbol, primary.url)}` : "",
     "",
     "Contract (tap to copy):",
     `<code>${address}</code>`,
-  ].join("\n");
-  const ok = await send(text, tokenButtons(address));
-  await notifyWatchersText(address, text, tokenButtons(address));
+  ]
+    .filter((l) => l !== "")
+    .join("\n");
+  const kb = tokenButtons(address, cfg);
+  const ok = await send(text, kb);
+  await notifyWatchersText(address, text, kb);
   return ok;
 }
 
@@ -197,7 +319,12 @@ async function notifyWatchersText(
   let notified = 0;
   for (const u of users) {
     if (!u.alerts_enabled || !u.telegram_chat_id) continue;
-    const ok = await sendTo(cfg.telegramBotToken, u.telegram_chat_id, text, replyMarkup);
+    const ok = await sendTo(
+      cfg.telegramBotToken,
+      u.telegram_chat_id,
+      text,
+      replyMarkup,
+    );
     if (ok) notified++;
   }
   return notified;
@@ -208,9 +335,10 @@ async function notifyWatchersText(
  * alerts_enabled + a saved telegram_chat_id. Returns how many were notified.
  */
 export async function notifyWatchers(s: TradeSignal): Promise<number> {
+  const cfg = await getAdminConfig();
   return notifyWatchersText(
     s.address,
-    `🔔 Watchlist alert\n${signalText(s)}`,
-    tokenButtons(s.address),
+    `🔔 Watchlist alert\n${signalText(s, cfg)}`,
+    tokenButtons(s.address, cfg),
   );
 }

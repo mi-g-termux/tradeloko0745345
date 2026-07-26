@@ -362,16 +362,29 @@ export default function ScannerPage() {
             <table className="dtable">
               <thead>
                 <tr>
-                  <th className="w-10">#</th>
+                  {/* Phones keep only the columns a trader actually decides on:
+                      rank, token, price, volume and 24h change. Everything else
+                      appears as the viewport widens, so nothing is lost — it is
+                      progressive disclosure rather than a 13-column sideways
+                      scroll on a 390px screen. */}
+                  <th className="w-8 sm:w-10">#</th>
                   <th className="text-left">Token</th>
                   <SortTh col="price" label="Price" sort={sort} dir={dir} onSort={onSort} />
-                  <SortTh col="age" label="Age" sort={sort} dir={dir} onSort={onSort} />
+                  <SortTh
+                    col="age"
+                    label="Age"
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                    className="hidden sm:table-cell"
+                  />
                   <SortTh
                     col="txns"
                     label={`Txns ${frame.toUpperCase()}`}
                     sort={sort}
                     dir={dir}
                     onSort={onSort}
+                    className="hidden lg:table-cell"
                   />
                   <SortTh
                     col="volume"
@@ -387,13 +400,49 @@ export default function ScannerPage() {
                     sort={sort}
                     dir={dir}
                     onSort={onSort}
+                    className="hidden xl:table-cell"
                   />
-                  <SortTh col="m5" label="5M" sort={sort} dir={dir} onSort={onSort} />
-                  <SortTh col="h1" label="1H" sort={sort} dir={dir} onSort={onSort} />
-                  <SortTh col="h6" label="6H" sort={sort} dir={dir} onSort={onSort} />
+                  <SortTh
+                    col="m5"
+                    label="5M"
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                    className="hidden lg:table-cell"
+                  />
+                  <SortTh
+                    col="h1"
+                    label="1H"
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                    className="hidden md:table-cell"
+                  />
+                  <SortTh
+                    col="h6"
+                    label="6H"
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                    className="hidden lg:table-cell"
+                  />
                   <SortTh col="h24" label="24H" sort={sort} dir={dir} onSort={onSort} />
-                  <SortTh col="liquidity" label="Liquidity" sort={sort} dir={dir} onSort={onSort} />
-                  <SortTh col="mcap" label="MCap" sort={sort} dir={dir} onSort={onSort} />
+                  <SortTh
+                    col="liquidity"
+                    label="Liquidity"
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                    className="hidden md:table-cell"
+                  />
+                  <SortTh
+                    col="mcap"
+                    label="MCap"
+                    sort={sort}
+                    dir={dir}
+                    onSort={onSort}
+                    className="hidden sm:table-cell"
+                  />
                 </tr>
               </thead>
               <tbody>
@@ -440,24 +489,47 @@ export default function ScannerPage() {
                       </Link>
                     </td>
                     <td className="text-right font-medium">{usd(t.priceUsd)}</td>
-                    <td className="text-right text-mute">{ageLabel(t.ageHours)}</td>
-                    <td className="text-right">{count(txnsFor(t, frame))}</td>
+                    <td className="hidden text-right text-mute sm:table-cell">
+                      {ageLabel(t.ageHours)}
+                    </td>
+                    <td className="hidden text-right lg:table-cell">
+                      {count(txnsFor(t, frame))}
+                    </td>
                     <td className="text-right">{compactUsd(volumeFor(t, frame))}</td>
-                    <td className="text-right">{count(t.traders24h)}</td>
-                    <td className={cx("text-right", pctColor(t.priceChange5m))}>
+                    <td className="hidden text-right xl:table-cell">
+                      {count(t.traders24h)}
+                    </td>
+                    <td
+                      className={cx(
+                        "hidden text-right lg:table-cell",
+                        pctColor(t.priceChange5m),
+                      )}
+                    >
                       {pct(t.priceChange5m)}
                     </td>
-                    <td className={cx("text-right", pctColor(t.priceChange1h))}>
+                    <td
+                      className={cx(
+                        "hidden text-right md:table-cell",
+                        pctColor(t.priceChange1h),
+                      )}
+                    >
                       {pct(t.priceChange1h)}
                     </td>
-                    <td className={cx("text-right", pctColor(t.priceChange6h))}>
+                    <td
+                      className={cx(
+                        "hidden text-right lg:table-cell",
+                        pctColor(t.priceChange6h),
+                      )}
+                    >
                       {pct(t.priceChange6h)}
                     </td>
                     <td className={cx("text-right", pctColor(t.priceChange24h))}>
                       {pct(t.priceChange24h)}
                     </td>
-                    <td className="text-right">{compactUsd(t.liquidityUsd)}</td>
-                    <td className="text-right">
+                    <td className="hidden text-right md:table-cell">
+                      {compactUsd(t.liquidityUsd)}
+                    </td>
+                    <td className="hidden text-right sm:table-cell">
                       {compactUsd(t.marketCap ?? t.fdv)}
                     </td>
                   </tr>

@@ -166,7 +166,7 @@ export default function TokenPage() {
           (Jupiter) buys work after graduation; until then, trade it on pump.fun.
         </p>
         <div className="flex flex-wrap gap-2">
-          <a href={`https://pump.fun/${address}`} target="_blank" rel="noreferrer">
+          <a href={`https://pump.fun/coin/${address}`} target="_blank" rel="noreferrer">
             <Button variant="success" size="md">
               Trade on Pump.fun <ExternalLink size={14} />
             </Button>
@@ -285,7 +285,9 @@ export default function TokenPage() {
       </div>
       {watchMsg ? <p className="text-2xs text-warn">{watchMsg}</p> : null}
 
-      <div className="grid gap-3 xl:grid-cols-[1fr_320px]">
+      {/* Single column on phones/tablets; the stat rail drops below the chart
+         instead of squeezing it to an unreadable width. */}
+      <div className="grid gap-3 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px]">
         {/* ── Left: chart + tabs ── */}
         <div className="min-w-0 space-y-3">
           <PriceChart
