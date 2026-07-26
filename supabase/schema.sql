@@ -487,29 +487,33 @@ alter table user_trade_settings
 -- Keep SUPABASE_SERVICE_ROLE_KEY server-side only. Never expose it to the
 -- browser or prefix it with NEXT_PUBLIC_.
 -- ---------------------------------------------------------------------
-alter table app_users              enable row level security;
-alter table auth_nonces            enable row level security;
-alter table admin_config           enable row level security;
-alter table site_ads               enable row level security;
-alter table cron_runs              enable row level security;
-alter table user_wallets           enable row level security;
-alter table wallet_transactions    enable row level security;
-alter table user_trade_settings    enable row level security;
-alter table watchlist              enable row level security;
-alter table price_alerts           enable row level security;
-alter table signals                enable row level security;
-alter table buy_orders             enable row level security;
-alter table limit_orders           enable row level security;
-alter table tracked_wallets        enable row level security;
-alter table whale_alerts           enable row level security;
-alter table holder_snapshots       enable row level security;
-alter table safety_cache           enable row level security;
-alter table token_searches         enable row level security;
-alter table email_log              enable row level security;
-alter table email_login_codes      enable row level security;
-alter table user_sessions          enable row level security;
-alter table rate_hits              enable row level security;
-alter table withdraw_confirmations enable row level security;
+-- Enabling RLS one table at a time fails the whole script if a single table is
+-- missing (for example an older database created before the ads feature). This
+-- loop skips absent tables instead, so it works on any vintage of the schema
+-- and stays safe to re-run.
+do $$
+declare
+  t text;
+  wanted text[] := array[
+    'app_users', 'auth_nonces', 'admin_config', 'site_ads', 'cron_runs',
+    'user_wallets', 'wallet_transactions', 'user_trade_settings', 'watchlist',
+    'price_alerts', 'signals', 'buy_orders', 'limit_orders', 'tracked_wallets',
+    'whale_alerts', 'holder_snapshots', 'safety_cache', 'token_searches',
+    'email_log', 'email_login_codes', 'user_sessions', 'rate_hits',
+    'withdraw_confirmations'
+  ];
+begin
+  foreach t in array wanted loop
+    if exists (
+      select 1 from pg_tables
+      where schemaname = 'public' and tablename = t
+    ) then
+      execute format('alter table public.%I enable row level security', t);
+    else
+      raise notice 'skipping RLS: table % does not exist yet', t;
+    end if;
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- 6. Housekeeping
@@ -517,14 +521,29 @@ alter table withdraw_confirmations enable row level security;
 -- rate_hits and expired codes/sessions grow forever otherwise. The
 -- /api/cron/outcomes job calls this, so no extra scheduler entry is needed.
 -- ---------------------------------------------------------------------
+-- Uses plpgsql with dynamic SQL rather than `language sql`, because a plain SQL
+-- function validates every table reference at creation time and would fail on a
+-- database that has not created these tables yet.
 create or replace function purge_security_rows()
 returns void
-language sql
+language plpgsql
 as $$
-  delete from rate_hits where created_at < now() - interval '2 days';
-  delete from user_sessions
-    where expires_at < now() - interval '7 days'
-       or (revoked and revoked_at < now() - interval '7 days');
-  delete from withdraw_confirmations where expires_at < now() - interval '1 day';
-  delete from email_login_codes where expires_at < now() - interval '1 day';
-$$;
+begin
+  if to_regclass('public.rate_hits') is not null then
+    delete from rate_hits where created_at < now() - interval '2 days';
+  end if;
+
+  if to_regclass('public.user_sessions') is not null then
+    delete from user_sessions
+      where expires_at < now() - interval '7 days'
+         or (revoked and revoked_at < now() - interval '7 days');
+  end if;
+
+  if to_regclass('public.withdraw_confirmations') is not null then
+    delete from withdraw_confirmations where expires_at < now() - interval '1 day';
+  end if;
+
+  if to_regclass('public.email_login_codes') is not null then
+    delete from email_login_codes where expires_at < now() - interval '1 day';
+  end if;
+end $$;
