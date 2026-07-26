@@ -73,6 +73,9 @@ alter table admin_config add column if not exists gemini_api_key text;
 alter table admin_config add column if not exists telegram_bot_token text;
 alter table admin_config add column if not exists telegram_chat_id text;
 alter table admin_config add column if not exists min_signal_confidence integer not null default 55;
+-- v2.4: sender display name, so alerts arrive as `MemePump <alerts@site.com>`
+-- instead of a bare address (which most inboxes treat as spam).
+alter table admin_config add column if not exists smtp_from_name text;
 
 -- Wallets a user tracks for copy-trade / whale watching.
 create table if not exists tracked_wallets (

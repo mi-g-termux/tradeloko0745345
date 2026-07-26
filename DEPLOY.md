@@ -360,7 +360,9 @@ your wallet.
 
 Set this up BEFORE you need it, because it has three preconditions:
 
-1. Your account must already have an email saved (Account & alerts page).
+1. Your account must already have an email saved. Set it in **Admin panel ->
+   Email -> "Admin login email"** (it saves to your own admin account). The
+   Account page field works too - it is the same address.
 2. Your account must already hold `admin` or `owner`.
 3. SMTP must work - send the test email from the admin panel once to confirm.
 
@@ -383,7 +385,9 @@ In the admin panel:
 - **Branding**: app name, logo URL, favicon URL, logo height, accent colour.
   Logo appears top-left in the navbar (DexScreener style). Changes show after a
   refresh.
-- **Email**: SMTP settings, then **send the test email**. Do not skip this - it
+- **Email**: set the **From name** (what recipients see in their inbox) and the
+  **From address**, save your **Admin login email**, then **send the test email**.
+  Do not skip this - it
   is what proves your admin fallback login will work.
 - **Automation**: copy the 9 cron URLs (section H).
 - **Ads**: enable, then add creatives per slot (`top_banner`, `sidebar`,

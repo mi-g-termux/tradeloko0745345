@@ -28,6 +28,27 @@ export async function emailReady(): Promise<EmailReadiness> {
   };
 }
 
+/**
+ * Build the RFC 5322 From header.
+ *
+ * Recipients see the display name, not the address, so a bare
+ * `alerts@yoursite.com` looks like spam in most inboxes. If the admin already
+ * typed a full `Name <addr>` value we leave it alone; otherwise we attach the
+ * configured From name (falling back to the brand name).
+ */
+function composeFrom(name: string, address: string): string {
+  const addr = (address || "").trim();
+  if (!addr) return "";
+  // Already in `Name <addr>` form -- respect exactly what was entered.
+  if (addr.includes("<") && addr.includes(">")) return addr;
+  const display = (name || "").trim();
+  if (!display) return addr;
+  // Escape quotes/backslashes so a name like Bob "The Ape" cannot break the
+  // header, then always quote it -- that makes commas and dots safe too.
+  const safe = display.replace(/[\\"]/g, (c) => "\\" + c);
+  return '"' + safe + '" <' + addr + ">";
+}
+
 let cachedTransport: { key: string; t: Transporter } | null = null;
 
 async function getTransport(): Promise<{
@@ -53,7 +74,10 @@ async function getTransport(): Promise<{
     });
     cachedTransport = { key, t: transport };
   }
-  return { transport: cachedTransport.t, from: cfg.smtpFrom };
+  return {
+    transport: cachedTransport.t,
+    from: composeFrom(cfg.smtpFromName || cfg.brandName, cfg.smtpFrom),
+  };
 }
 
 async function logEmail(row: {

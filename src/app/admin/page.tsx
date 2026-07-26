@@ -62,6 +62,7 @@ interface Config {
   smtp_user: string;
   smtp_pass: string;
   smtp_from: string;
+  smtp_from_name: string;
   smtp_secure: boolean;
   // Branding
   brand_name: string;
@@ -1048,6 +1049,62 @@ function SignalsTab({ cfg, set }: { cfg: Config; set: Setter }) {
 function AlertsTab({ cfg, set }: { cfg: Config; set: Setter }) {
   const [testTo, setTestTo] = useState("");
   const [testMsg, setTestMsg] = useState<string | null>(null);
+
+  // Admin login email. This lives on the admin's own user row (app_users.email),
+  // NOT in admin_config, because the login code is sent to a person and each
+  // admin has their own address. It is edited here so the admin never has to
+  // hunt through /account to find it.
+  const [adminEmail, setAdminEmail] = useState("");
+  const [adminEmailSaved, setAdminEmailSaved] = useState("");
+  const [adminEmailMsg, setAdminEmailMsg] = useState<string | null>(null);
+  const [savingEmail, setSavingEmail] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch("/api/account", { cache: "no-store" });
+        if (!r.ok || !alive) return;
+        const j = await r.json();
+        const e: string = j?.account?.email ?? "";
+        setAdminEmail(e);
+        setAdminEmailSaved(e);
+      } catch {
+        /* leave blank; the field still works */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function saveAdminEmail() {
+    setSavingEmail(true);
+    setAdminEmailMsg(null);
+    try {
+      const value = adminEmail.trim();
+      const r = await fetch("/api/account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: value, notifyEmailEnabled: true }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setAdminEmailMsg(j?.error || "Could not save that address.");
+        return;
+      }
+      setAdminEmailSaved(value);
+      setAdminEmailMsg(
+        value
+          ? "Saved. You can now sign in at /signin with this address."
+          : "Cleared. Email login is disabled until you set an address.",
+      );
+    } catch {
+      setAdminEmailMsg("Network error. Try again.");
+    } finally {
+      setSavingEmail(false);
+    }
+  }
   const [testing, setTesting] = useState(false);
 
   async function sendTestEmail() {
@@ -1209,13 +1266,34 @@ function AlertsTab({ cfg, set }: { cfg: Config; set: Setter }) {
             className="font-mono"
           />
         </Field>
-        <Field label="From address">
-          <TextInput
-            value={cfg.smtp_from ?? ""}
-            onChange={(e) => set("smtp_from", e.target.value)}
-            placeholder='"MemePump" <alerts@yourdomain.com>'
-          />
-        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="From name"
+            hint="The name recipients see in their inbox. Blank uses your app name."
+          >
+            <TextInput
+              value={cfg.smtp_from_name ?? ""}
+              onChange={(e) => set("smtp_from_name", e.target.value)}
+              placeholder="MemePump Alerts"
+            />
+          </Field>
+          <Field label="From address" hint="Must be a mailbox your SMTP provider allows.">
+            <TextInput
+              value={cfg.smtp_from ?? ""}
+              onChange={(e) => set("smtp_from", e.target.value)}
+              placeholder="alerts@yourdomain.com"
+            />
+          </Field>
+        </div>
+        <p className="text-2xs text-faint">
+          Emails will be sent as{" "}
+          <span className="font-mono text-mute">
+            {(cfg.smtp_from_name || cfg.brand_name || "MemePump") +
+              " <" +
+              (cfg.smtp_from || "not-set@yourdomain.com") +
+              ">"}
+          </span>
+        </p>
 
         <div className="flex gap-2 border-t border-edge pt-3">
           <TextInput
@@ -1232,6 +1310,45 @@ function AlertsTab({ cfg, set }: { cfg: Config; set: Setter }) {
           </Button>
         </div>
         {testMsg ? <p className="text-2xs text-mute">{testMsg}</p> : null}
+      </Card>
+
+      <Card
+        title="Admin login email"
+        hint="The address that receives your 6-digit sign-in code at /signin. This is how you get in without your wallet."
+      >
+        <Field
+          label="Your admin email address"
+          hint="Saved to your own admin account, not shared with other users."
+        >
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <TextInput
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+            <Button
+              onClick={saveAdminEmail}
+              disabled={savingEmail || adminEmail.trim() === adminEmailSaved.trim()}
+            >
+              {savingEmail ? "Saving…" : "Save email"}
+            </Button>
+          </div>
+        </Field>
+        {adminEmailMsg ? <p className="text-2xs text-mute">{adminEmailMsg}</p> : null}
+        <div className="rounded-card border border-edge bg-panel2 p-3">
+          <p className="text-2xs font-medium text-ink">Set this up before you need it</p>
+          <ul className="mt-1 space-y-1 text-2xs text-mute">
+            <li>1. Save your email above.</li>
+            <li>2. Fill in SMTP settings and send yourself a test email.</li>
+            <li>
+              3. Confirm it arrives. Only then is wallet-free login actually available.
+            </li>
+          </ul>
+          <p className="mt-2 text-2xs text-faint">
+            Without working SMTP the code cannot be delivered, so your wallet stays the
+            only way in.
+          </p>
+        </div>
       </Card>
     </div>
   );
@@ -1315,7 +1432,7 @@ function TradingTab({ cfg, set }: { cfg: Config; set: Setter }) {
   );
 }
 
-/* ────────────────────────────── Members ────────────────────────────── */
+/* ────────────────────────────── Members ─────���──────────────────────── */
 
 interface Member {
   id: string;

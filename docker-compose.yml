@@ -1,0 +1,55 @@
+# Single-command self-hosting: docker compose up -d --build
+#
+# The database lives in Supabase (managed Postgres), so there is no db service
+# here. Put your real values in a .env file next to this file - compose reads it
+# automatically and it is gitignored.
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        # NEXT_PUBLIC_* must be present at BUILD time, not just runtime, because
+        # Next.js inlines them into the browser bundle.
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-MemePump}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: ${NEXT_PUBLIC_TELEGRAM_BOT_USERNAME:-}
+    image: memepump:latest
+    container_name: memepump
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # Server-only secrets. These are read at runtime.
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SESSION_SECRET: ${SESSION_SECRET}
+      WALLET_MASTER_KEY: ${WALLET_MASTER_KEY}
+      CRON_SECRET: ${CRON_SECRET}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL:-}
+      BOOTSTRAP_ADMIN_WALLET: ${BOOTSTRAP_ADMIN_WALLET:-}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      HELIUS_API_KEY: ${HELIUS_API_KEY:-}
+      BIRDEYE_API_KEY: ${BIRDEYE_API_KEY:-}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/branding"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

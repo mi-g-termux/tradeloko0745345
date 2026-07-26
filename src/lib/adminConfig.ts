@@ -31,6 +31,12 @@ export interface AdminConfig {
   smtpUser: string;
   smtpPass: string;
   smtpFrom: string;
+  /**
+   * Display name shown in the recipient's inbox, e.g. "MemePump" so the sender
+   * reads as `MemePump <alerts@yoursite.com>` instead of a bare address.
+   * Blank falls back to the brand name.
+   */
+  smtpFromName: string;
   smtpSecure: boolean;
   maxBuySol: number;
   dailySpendCapSol: number;
@@ -83,6 +89,7 @@ const DEFAULTS: AdminConfig = {
   smtpUser: "",
   smtpPass: "",
   smtpFrom: "",
+  smtpFromName: "",
   smtpSecure: false,
   maxBuySol: 0.1,
   dailySpendCapSol: 1.0,
@@ -158,6 +165,7 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.smtpUser = data.smtp_user ?? "";
       merged.smtpPass = data.smtp_pass ?? "";
       merged.smtpFrom = data.smtp_from ?? "";
+      merged.smtpFromName = data.smtp_from_name ?? "";
       if (data.smtp_secure != null) {
         merged.smtpSecure = Boolean(data.smtp_secure);
         dbHasSmtpSecure = true;

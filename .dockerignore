@@ -1,0 +1,21 @@
+# Keep the build context small and never ship secrets into an image layer.
+node_modules
+.next
+.git
+.gitignore
+npm-debug.log*
+.env
+.env.*
+.DS_Store
+*.zip
+*.tsbuildinfo
+coverage
+.vscode
+.idea
+README.md
+DEPLOY.md
+PLATFORMS.md
+SETUP.md
+REBUILD-PROMPT.md
+REBUILD-PROMPT-V2.md
+MERGE-10-FEATURES.md
