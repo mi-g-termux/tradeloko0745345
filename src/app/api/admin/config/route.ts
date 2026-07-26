@@ -50,6 +50,15 @@ const PLAIN_KEYS = [
   "smtp_user",
   "smtp_from",
   "smtp_secure",
+  // Branding + ads (v2). Without these the admin panel could not persist the
+  // navbar logo, favicon, accent colour or the ads master switch.
+  "brand_name",
+  "logo_url",
+  "favicon_url",
+  "logo_height",
+  "show_brand_name",
+  "accent_color",
+  "ads_enabled",
 ];
 
 export async function GET() {

@@ -1,23 +1,15 @@
-// Vercel Cron -> limit/TP/SL keeper (feature #7). Secured by CRON_SECRET.
-import { NextResponse } from "next/server";
+// GET/POST /api/cron/keeper — limit / take-profit / stop-loss keeper.
+// Run every 5 minutes.
 import { runKeeper } from "@/lib/trade/limitOrders";
-import { SERVER_ENV } from "@/lib/config";
+import { runCronJob } from "@/lib/cron/runner";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function authorized(req: Request): boolean {
-  const secret = SERVER_ENV.cronSecret;
-  if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try {
+  return runCronJob("keeper", req, async () => {
     const result = await runKeeper();
-    return NextResponse.json({ ok: true, result });
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
-  }
+    return { status: "ok" as const, result };
+  });
 }
+export const POST = GET;

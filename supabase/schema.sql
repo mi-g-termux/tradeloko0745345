@@ -292,3 +292,63 @@ create table if not exists wallet_transactions (
   created_at timestamptz not null default now()
 );
 create index if not exists wallet_tx_owner on wallet_transactions (owner_id, created_at desc);
+
+-- ============================================================================
+-- v2 additions: branding, ads, cron heartbeats
+-- Safe to run repeatedly on an existing database (idempotent).
+-- ============================================================================
+
+-- ── Branding + ads master switch on the singleton admin_config row ──────────
+alter table admin_config add column if not exists brand_name text default '';
+alter table admin_config add column if not exists logo_url text default '';
+alter table admin_config add column if not exists favicon_url text default '';
+alter table admin_config add column if not exists logo_height int default 28;
+alter table admin_config add column if not exists show_brand_name boolean default true;
+alter table admin_config add column if not exists accent_color text default '';
+alter table admin_config add column if not exists ads_enabled boolean default false;
+
+-- ── Ad creatives ────────────────────────────────────────────────────────────
+create table if not exists site_ads (
+  id uuid primary key default gen_random_uuid(),
+  slot text not null,
+  title text,
+  image_url text,
+  link_url text,
+  html text,
+  enabled boolean not null default true,
+  weight numeric not null default 1,
+  impressions bigint not null default 0,
+  clicks bigint not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists site_ads_slot_enabled on site_ads (slot, enabled);
+
+-- Atomic counter bump so concurrent page views cannot lose impressions.
+create or replace function bump_ad_counter(ad_id uuid, counter text)
+returns void language plpgsql as $$
+begin
+  if counter = 'click' then
+    update site_ads set clicks = clicks + 1 where id = ad_id;
+  else
+    update site_ads set impressions = impressions + 1 where id = ad_id;
+  end if;
+end;
+$$;
+
+-- ── Cron heartbeats (powers the admin Automation health panel) ──────────────
+create table if not exists cron_runs (
+  id bigserial primary key,
+  job text not null,
+  status text not null,
+  duration_ms int,
+  error text,
+  result jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists cron_runs_job_time on cron_runs (job, created_at desc);
+
+-- Keep the heartbeat table small: drop rows older than 7 days.
+create or replace function prune_cron_runs()
+returns void language sql as $$
+  delete from cron_runs where created_at < now() - interval '7 days';
+$$;

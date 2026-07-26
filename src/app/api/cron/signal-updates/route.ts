@@ -1,26 +1,19 @@
-// Vercel Cron / external cron -> automatic Telegram follow-ups when alerted
-// signals pump (2x/3x/5x/10x). Secured by CRON_SECRET.
-import { NextResponse } from "next/server";
+// GET/POST /api/cron/signal-updates — follow-up alerts (2x/3x/5x/10x) on
+// signals that already fired. Run every 15 minutes.
+//
+// SECURITY FIX: this route previously returned `true` from its auth check when
+// CRON_SECRET was unset, leaving it publicly triggerable. The shared runner
+// always denies when no secret is configured.
 import { broadcastSignalPumps } from "@/lib/analysis/outcomes";
-import { SERVER_ENV } from "@/lib/config";
+import { runCronJob } from "@/lib/cron/runner";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function authorized(req: Request): boolean {
-  const secret = SERVER_ENV.cronSecret;
-  if (!secret) return true;
-  if (req.headers.get("authorization") === `Bearer ${secret}`) return true;
-  const key = new URL(req.url).searchParams.get("key");
-  return key === secret;
-}
-
 export async function GET(req: Request) {
-  if (!authorized(req)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  try {
+  return runCronJob("signal-updates", req, async () => {
     const result = await broadcastSignalPumps();
-    return NextResponse.json({ ok: true, result });
-  } catch (err) {
-    return NextResponse.json({ ok: false, error: (err as Error).message });
-  }
+    return { status: "ok" as const, result };
+  });
 }
+export const POST = GET;

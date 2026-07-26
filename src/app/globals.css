@@ -2,18 +2,121 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   Design tokens (DexScreener-style dark terminal).
+   --c-accent can be overridden at runtime by the admin accent-colour setting,
+   which injects an inline style on the <html> element.
+   ========================================================================== */
 :root {
   color-scheme: dark;
+  --c-base: #0b0e14;
+  --c-panel: #11151d;
+  --c-panel-2: #171c26;
+  --c-edge: #1e2531;
+  --c-edge-2: #2a3240;
+  --c-ink: #e6e9ef;
+  --c-mute: #8b95a7;
+  --c-faint: #5f6879;
+  --c-accent: #3b82f6;
+  --c-accent-soft: rgba(59, 130, 246, 0.25);
+  --c-up: #16c784;
+  --c-down: #ea3943;
+  --c-warn: #f0b90b;
+  --nav-h: 52px;
 }
 
-html, body {
-  background: #0a0c10;
-  color: #e5e7eb;
+html,
+body {
+  background: var(--c-base);
+  color: var(--c-ink);
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
 }
 
 * {
-  border-color: #1a1f2e;
+  border-color: var(--c-edge);
 }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #1a1f2e; border-radius: 8px; }
+/* Thin scrollbars so dense tables keep their horizontal space. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: var(--c-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-edge-2);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4353;
+}
+
+/* Focus ring visible on dark panels (accessibility). */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+@layer components {
+  .card {
+    @apply rounded-card border border-edge bg-panel;
+  }
+
+  /* Dense data table */
+  .dtable {
+    @apply w-full border-collapse text-xs;
+  }
+  .dtable thead th {
+    @apply sticky top-0 z-10 whitespace-nowrap border-b border-edge bg-panel2 px-2.5 py-2 text-left text-2xs font-semibold uppercase tracking-wide text-mute;
+  }
+  .dtable tbody td {
+    @apply whitespace-nowrap border-b border-edge px-2.5 py-2 align-middle;
+  }
+  .dtable tbody tr {
+    @apply transition-colors;
+  }
+  .dtable tbody tr:hover {
+    background: var(--c-panel-2);
+  }
+
+  .th-sort {
+    @apply cursor-pointer select-none;
+  }
+  .th-sort:hover {
+    color: var(--c-ink);
+  }
+
+  /* Horizontal scroller with hidden scrollbar (ticker strips, chip rows) */
+  .scroll-x {
+    @apply overflow-x-auto;
+    scrollbar-width: none;
+  }
+  .scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Loading shimmer */
+  .skeleton {
+    @apply relative overflow-hidden rounded bg-panel2;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 animate-shimmer;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  }
+}
+
+/* Hide number-input spinners in filter fields. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}

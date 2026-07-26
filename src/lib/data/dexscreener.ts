@@ -5,6 +5,11 @@ import { DEXSCREENER_BASE } from "../config";
 import { fetchJson } from "../http";
 import type { TokenSummary } from "../types";
 
+interface DexTxnWindow {
+  buys?: number;
+  sells?: number;
+}
+
 interface DexPair {
   chainId: string;
   dexId: string;
@@ -13,20 +18,54 @@ interface DexPair {
   baseToken: { address: string; name: string; symbol: string };
   quoteToken: { address: string; symbol: string };
   priceUsd?: string;
-  priceChange?: { h1?: number; h24?: number };
+  // DexScreener exposes m5 / h1 / h6 / h24 windows for change, volume and txns.
+  priceChange?: { m5?: number; h1?: number; h6?: number; h24?: number };
   liquidity?: { usd?: number };
   fdv?: number;
   marketCap?: number;
-  volume?: { h24?: number };
-  txns?: { h24?: { buys?: number; sells?: number } };
+  volume?: { m5?: number; h1?: number; h6?: number; h24?: number };
+  txns?: {
+    m5?: DexTxnWindow;
+    h1?: DexTxnWindow;
+    h6?: DexTxnWindow;
+    h24?: DexTxnWindow;
+  };
   pairCreatedAt?: number;
-  info?: { imageUrl?: string };
+  boosts?: { active?: number };
+  info?: {
+    imageUrl?: string;
+    websites?: Array<{ label?: string; url?: string }>;
+    socials?: Array<{ type?: string; platform?: string; url?: string; handle?: string }>;
+  };
+}
+
+/** Sum a txn window into a single count (buys + sells). */
+function txnTotal(w: DexTxnWindow | undefined): number | null {
+  if (!w) return null;
+  const buys = w.buys ?? 0;
+  const sells = w.sells ?? 0;
+  if (buys === 0 && sells === 0) return 0;
+  return buys + sells;
+}
+
+function findSocial(
+  p: DexPair,
+  ...types: string[]
+): string | null {
+  const socials = p.info?.socials ?? [];
+  for (const s of socials) {
+    const kind = (s.type ?? s.platform ?? "").toLowerCase();
+    if (types.includes(kind) && s.url) return s.url;
+  }
+  return null;
 }
 
 function pairToSummary(p: DexPair): TokenSummary {
   const created = p.pairCreatedAt ?? null;
   const ageHours =
     created != null ? (Date.now() - created) / 3_600_000 : null;
+  const buys24 = p.txns?.h24?.buys ?? null;
+  const sells24 = p.txns?.h24?.sells ?? null;
   return {
     address: p.baseToken.address,
     name: p.baseToken.name,
@@ -38,14 +77,36 @@ function pairToSummary(p: DexPair): TokenSummary {
     fdv: p.fdv ?? null,
     marketCap: p.marketCap ?? null,
     volume24h: p.volume?.h24 ?? null,
-    txns24hBuys: p.txns?.h24?.buys ?? null,
-    txns24hSells: p.txns?.h24?.sells ?? null,
+    txns24hBuys: buys24,
+    txns24hSells: sells24,
     pairCreatedAt: created,
     ageHours,
     dexId: p.dexId ?? null,
     pairAddress: p.pairAddress ?? null,
     url: p.url ?? null,
     imageUrl: p.info?.imageUrl ?? null,
+    // ── Multi-timeframe columns (DexScreener-style scanner table). ──
+    priceChange5m: p.priceChange?.m5 ?? null,
+    priceChange6h: p.priceChange?.h6 ?? null,
+    volume5m: p.volume?.m5 ?? null,
+    volume1h: p.volume?.h1 ?? null,
+    volume6h: p.volume?.h6 ?? null,
+    txns5m: txnTotal(p.txns?.m5),
+    txns1h: txnTotal(p.txns?.h1),
+    txns6h: txnTotal(p.txns?.h6),
+    txns24h: txnTotal(p.txns?.h24),
+    buys5m: p.txns?.m5?.buys ?? null,
+    sells5m: p.txns?.m5?.sells ?? null,
+    // DexScreener does not publish unique makers on the free endpoint, so we
+    // report the 24h txn count as the trader-activity proxy and label it as
+    // such in the UI (never presented as a verified unique-wallet count).
+    traders24h:
+      buys24 != null || sells24 != null ? (buys24 ?? 0) + (sells24 ?? 0) : null,
+    boosts: p.boosts?.active ?? null,
+    quoteSymbol: p.quoteToken?.symbol ?? null,
+    websiteUrl: p.info?.websites?.[0]?.url ?? null,
+    twitterUrl: findSocial(p, "twitter", "x"),
+    telegramUrl: findSocial(p, "telegram"),
   };
 }
 

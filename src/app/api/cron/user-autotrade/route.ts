@@ -3,8 +3,8 @@
 // recent strong bullish signals from THEIR OWN custodial wallet, within their
 // per-buy cap, daily cap, remaining balance, and the admin safety gate.
 // Auth: `Authorization: Bearer $CRON_SECRET` (or ?key= for manual testing).
-import { NextRequest, NextResponse } from "next/server";
-import { SERVER_ENV } from "@/lib/config";
+import { NextRequest } from "next/server";
+import { runCronJob, type CronOutcome } from "@/lib/cron/runner";
 import { getServiceClient } from "@/lib/supabase";
 import { getAdminConfig } from "@/lib/adminConfig";
 import { analyzeSafety } from "@/lib/data/safety";
@@ -16,13 +16,6 @@ export const maxDuration = 60;
 
 const BULLISH = new Set(["up", "bullish", "long", "buy", "strong_buy"]);
 const MAX_BUYS_PER_RUN = 12;
-
-function authorized(req: NextRequest): boolean {
-  const secret = SERVER_ENV.cronSecret;
-  if (!secret) return false;
-  if ((req.headers.get("authorization") ?? "") === `Bearer ${secret}`) return true;
-  return new URL(req.url).searchParams.get("key") === secret;
-}
 
 async function spentLast24h(db: any, ownerId: string): Promise<number> {
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -48,12 +41,12 @@ async function alreadyHeld(db: any, ownerId: string, token: string): Promise<boo
   return (data ?? []).length > 0;
 }
 
-async function run(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+// Auth, timing and heartbeat logging are handled by runCronJob.
+async function sweep(): Promise<CronOutcome> {
   const db = getServiceClient();
-  if (!db) return NextResponse.json({ ok: true, skipped: true, reason: "No database." });
+  if (!db) {
+    return { status: "skipped", reason: "Supabase is not configured." };
+  }
 
   const cfg = await getAdminConfig();
 
@@ -123,12 +116,12 @@ async function run(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, executed, results });
+  return { status: "ok", result: { executed, results } };
 }
 
 export async function GET(req: NextRequest) {
-  return run(req);
+  return runCronJob("user-autotrade", req, sweep);
 }
 export async function POST(req: NextRequest) {
-  return run(req);
+  return runCronJob("user-autotrade", req, sweep);
 }

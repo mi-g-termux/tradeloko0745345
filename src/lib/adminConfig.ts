@@ -38,6 +38,15 @@ export interface AdminConfig {
   minLiquidityUsd: number;
   requireSafeScore: number;
   minSignalConfidence: number;
+  // ── Branding (admin-managed, public-safe) ──
+  brandName: string;
+  logoUrl: string;
+  faviconUrl: string;
+  logoHeight: number;
+  showBrandName: boolean;
+  accentColor: string;
+  // ── Ads ──
+  adsEnabled: boolean;
 }
 
 const DEFAULTS: AdminConfig = {
@@ -75,6 +84,13 @@ const DEFAULTS: AdminConfig = {
   minLiquidityUsd: 5000,
   requireSafeScore: 60,
   minSignalConfidence: 55,
+  brandName: "",
+  logoUrl: "",
+  faviconUrl: "",
+  logoHeight: 28,
+  showBrandName: true,
+  accentColor: "",
+  adsEnabled: false,
 };
 
 let cache: { value: AdminConfig; expiry: number } | null = null;
@@ -149,6 +165,14 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.minSignalConfidence = Number(
         data.min_signal_confidence ?? DEFAULTS.minSignalConfidence,
       );
+      merged.brandName = data.brand_name ?? "";
+      merged.logoUrl = data.logo_url ?? "";
+      merged.faviconUrl = data.favicon_url ?? "";
+      merged.logoHeight = Number(data.logo_height ?? DEFAULTS.logoHeight);
+      merged.showBrandName =
+        data.show_brand_name == null ? true : Boolean(data.show_brand_name);
+      merged.accentColor = data.accent_color ?? "";
+      merged.adsEnabled = Boolean(data.ads_enabled);
     }
   }
 

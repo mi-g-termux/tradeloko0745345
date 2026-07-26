@@ -19,6 +19,43 @@ export interface TokenSummary {
   pairAddress: string | null;
   url: string | null;
   imageUrl: string | null;
+  // ── Multi-timeframe market data (DexScreener-style columns). Optional so
+  // every existing TokenSummary producer keeps compiling; the scanner UI
+  // renders "—" when a window is unavailable. ──
+  priceChange5m?: number | null;
+  priceChange6h?: number | null;
+  volume5m?: number | null;
+  volume1h?: number | null;
+  volume6h?: number | null;
+  txns5m?: number | null;
+  txns1h?: number | null;
+  txns6h?: number | null;
+  txns24h?: number | null;
+  buys5m?: number | null;
+  sells5m?: number | null;
+  /** Distinct-ish trader count proxy for 24h (buys + sells makers). */
+  traders24h?: number | null;
+  /** DexScreener paid-boost amount, when the pair is boosted. */
+  boosts?: number | null;
+  quoteSymbol?: string | null;
+  /** True when the pair was pinned by an admin (rides top of the scanner). */
+  pinned?: boolean;
+  websiteUrl?: string | null;
+  twitterUrl?: string | null;
+  telegramUrl?: string | null;
+}
+
+/** How much real evidence a signal was actually built from. */
+export type QualityLevel = "high" | "medium" | "low" | "none";
+
+export interface SignalQuality {
+  /** Number of OHLCV candles the indicators were computed from. */
+  candles: number;
+  /** Candle timeframe actually used (adaptive to token age). */
+  timeframe: string;
+  level: QualityLevel;
+  /** Human-readable reasons the quality is degraded. */
+  notes: string[];
 }
 
 export interface SafetyFactor {
@@ -87,6 +124,10 @@ export interface Indicators {
   support: number | null;
   resistance: number | null;
   trend: "up" | "down" | "sideways";
+  /** How many candles fed the calculation (0 = no real chart data). */
+  candleCount?: number;
+  /** ATR as a share of price — memecoin volatility context. */
+  atrPct?: number | null;
 }
 
 export type PatternDirection = "bullish" | "bearish" | "neutral";
@@ -136,6 +177,61 @@ export interface TradeSignal {
   aiEnabled: boolean;
   social: SocialStats | null;
   updatedAt: string;
+  /** Evidence/data-quality report. Low quality => confidence is capped. */
+  quality?: SignalQuality;
+  /** Timeframe-labelled contributions that produced the score (for the UI). */
+  factors?: Array<{ label: string; points: number; detail: string }>;
+}
+
+// ── Branding (admin-managed logo / favicon / theme) ──
+
+export interface Branding {
+  appName: string;
+  logoUrl: string | null;
+  faviconUrl: string | null;
+  logoHeight: number;
+  showAppNameBesideLogo: boolean;
+  accentColor: string | null;
+}
+
+// ── Ad placements ──
+
+export type AdSlotId =
+  | "top_banner"
+  | "scanner_inline"
+  | "sidebar"
+  | "token_page"
+  | "footer";
+
+export interface AdCreative {
+  id: string;
+  slot: AdSlotId;
+  title: string | null;
+  imageUrl: string | null;
+  linkUrl: string | null;
+  html: string | null;
+  enabled: boolean;
+  weight: number;
+  impressions: number;
+  clicks: number;
+  createdAt?: string;
+}
+
+// ── Automation / cron health ──
+
+export interface CronRunInfo {
+  job: string;
+  lastRunAt: string | null;
+  lastStatus: "ok" | "skipped" | "error" | null;
+  lastDurationMs: number | null;
+  lastError: string | null;
+  lastResult: unknown;
+  runs24h: number;
+  errors24h: number;
+  /** Expected cadence in minutes (what the cron-job.org entry should use). */
+  expectedEveryMinutes: number;
+  /** True when the last run is older than ~2.5x the expected cadence. */
+  overdue: boolean;
 }
 
 // ── New feature types ──

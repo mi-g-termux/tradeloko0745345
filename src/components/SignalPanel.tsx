@@ -110,6 +110,63 @@ export function SignalPanel({ address }: { address: string }) {
           )}
         </div>
       </div>
+      {/* Evidence quality — the fix for "the signal is not accurate". The engine
+          now states how much real price history it had, and openly holds a
+          neutral call when there is not enough. */}
+      {sig.quality && (
+        <div className="mt-2 rounded-md border border-white/10 bg-black/20 p-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-semibold uppercase tracking-wide text-slate-300">
+              Evidence:{" "}
+              {sig.quality.level === "high"
+                ? "strong"
+                : sig.quality.level === "medium"
+                  ? "usable"
+                  : sig.quality.level === "low"
+                    ? "thin"
+                    : "none"}
+            </span>
+            <span className="text-slate-400">
+              {sig.quality.candles} candles · {sig.quality.timeframe} timeframe
+            </span>
+          </div>
+          {sig.quality.notes.length > 0 && (
+            <ul className="mt-1 space-y-0.5">
+              {sig.quality.notes.map((n, i) => (
+                <li key={i} className="text-[11px] text-amber-300/80">
+                  {n}
+                </li>
+              ))}
+            </ul>
+          )}
+          {sig.factors && sig.factors.length > 0 && (
+            <details className="mt-1.5">
+              <summary className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-200">
+                Why this score? ({sig.factors.length} factors)
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {sig.factors.map((f, i) => (
+                  <li key={i} className="text-[11px] text-slate-400">
+                    <span
+                      className={
+                        f.score > 0
+                          ? "text-emerald-400"
+                          : f.score < 0
+                            ? "text-red-400"
+                            : "text-slate-500"
+                      }
+                    >
+                      {f.score > 0 ? "+" : ""}
+                      {f.score}
+                    </span>{" "}
+                    <b>{f.label}</b> · weight {f.weight} — {f.detail}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
       {sendMsg && (
         <div
           className={

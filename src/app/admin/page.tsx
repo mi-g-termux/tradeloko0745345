@@ -1,7 +1,29 @@
 "use client";
-import { useEffect, useState } from "react";
-import { ShieldCheck, AlertTriangle } from "lucide-react";
-import { shortAddr } from "@/lib/format";
+// Admin panel — rebuilt.
+//
+// The old panel had one flat column of ~40 controls whose only on/off cue was a
+// colour. This version fixes the three things that made it unusable:
+//   1. Every toggle renders the literal word ON or OFF (see Switch in ui.tsx).
+//   2. Settings are grouped into tabs with a live search across all of them.
+//   3. A sticky save bar shows unsaved-change count, so nothing is silently lost.
+// It also adds the new Branding, Ads and Automation-health sections.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
+import { shortAddr, timeAgo } from "@/lib/format";
+import {
+  Badge,
+  Button,
+  Field,
+  Modal,
+  Switch,
+  Tabs,
+  TextInput,
+  cx,
+  inputClass,
+} from "@/components/ui";
+import type { AdCreative, AdSlotId, CronRunInfo } from "@/lib/types";
+
+/* ───────────────────────────── Config shape ──────────────────────────── */
 
 interface Config {
   auto_buy_enabled: boolean;
@@ -38,19 +60,47 @@ interface Config {
   smtp_pass: string;
   smtp_from: string;
   smtp_secure: boolean;
+  // Branding
+  brand_name: string;
+  logo_url: string;
+  favicon_url: string;
+  logo_height: number;
+  show_brand_name: boolean;
+  accent_color: string;
+  // Ads
+  ads_enabled: boolean;
 }
+
+type TabId =
+  | "branding"
+  | "automation"
+  | "ads"
+  | "signals"
+  | "alerts"
+  | "providers"
+  | "trading"
+  | "members";
+
+const TABS: Array<{ value: TabId; label: string }> = [
+  { value: "branding", label: "Branding" },
+  { value: "automation", label: "Automation & cron" },
+  { value: "ads", label: "Ads" },
+  { value: "signals", label: "Signals & risk" },
+  { value: "alerts", label: "Alerts" },
+  { value: "providers", label: "API keys" },
+  { value: "trading", label: "Trading & fees" },
+  { value: "members", label: "Members" },
+];
 
 export default function AdminPage() {
   const [cfg, setCfg] = useState<Config | null>(null);
+  const [saved, setSaved] = useState<Config | null>(null);
+  const [tab, setTab] = useState<TabId>("branding");
   const [status, setStatus] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanMsg, setScanMsg] = useState<string | null>(null);
-  const [testTo, setTestTo] = useState("");
-  const [testMsg, setTestMsg] = useState<string | null>(null);
-  const [testing, setTesting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     const r = await fetch("/api/admin/config");
     if (r.status === 403) {
       setForbidden(true);
@@ -58,23 +108,324 @@ export default function AdminPage() {
     }
     const j = await r.json();
     setCfg(j.config);
-  }
+    setSaved(j.config);
+  }, []);
+
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
+
+  const dirtyKeys = useMemo(() => {
+    if (!cfg || !saved) return [] as string[];
+    return (Object.keys(cfg) as Array<keyof Config>).filter(
+      (k) => cfg[k] !== saved[k],
+    ) as string[];
+  }, [cfg, saved]);
 
   async function save() {
     if (!cfg) return;
+    setSaving(true);
     setStatus("Saving…");
-    const r = await fetch("/api/admin/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cfg),
-    });
-    const j = await r.json();
-    setStatus(r.ok ? "Saved." : "Error: " + (j.error ?? "Failed"));
-    load();
+    try {
+      const r = await fetch("/api/admin/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cfg),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? "Failed");
+      setStatus("Saved. Branding changes appear after a refresh.");
+      await load();
+    } catch (e) {
+      setStatus(`Error: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
   }
+
+  function set<K extends keyof Config>(k: K, v: Config[K]) {
+    setCfg((c) => (c ? { ...c, [k]: v } : c));
+  }
+
+  if (forbidden) {
+    return (
+      <div className="card border-down/40 bg-down/5 px-4 py-3 text-sm text-down">
+        Admin access required. Sign in as the owner or an admin (the first person
+        who ever signed in is the permanent owner).
+      </div>
+    );
+  }
+  if (!cfg) return <div className="text-mute">Loading admin settings…</div>;
+
+  return (
+    <div className="space-y-4 pb-24">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="flex items-center gap-2 text-base font-bold text-ink">
+          <ShieldCheck size={18} className="text-up" /> Admin panel
+        </h1>
+        <Badge tone="accent">owner / admin only</Badge>
+      </div>
+
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
+
+      {tab === "branding" ? <BrandingTab cfg={cfg} set={set} /> : null}
+      {tab === "automation" ? <AutomationTab cfg={cfg} set={set} /> : null}
+      {tab === "ads" ? <AdsTab cfg={cfg} set={set} /> : null}
+      {tab === "signals" ? <SignalsTab cfg={cfg} set={set} /> : null}
+      {tab === "alerts" ? <AlertsTab cfg={cfg} set={set} /> : null}
+      {tab === "providers" ? <ProvidersTab cfg={cfg} set={set} /> : null}
+      {tab === "trading" ? <TradingTab cfg={cfg} set={set} /> : null}
+      {tab === "members" ? <Members /> : null}
+
+      {/* ── Sticky save bar: unsaved work can never be lost silently ── */}
+      {tab !== "members" && tab !== "ads" ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-edge bg-panel/95 backdrop-blur">
+          <div className="mx-auto flex max-w-[1600px] items-center gap-3 px-4 py-3">
+            <span className="text-xs text-mute">
+              {dirtyKeys.length === 0
+                ? "No unsaved changes."
+                : `${dirtyKeys.length} unsaved change${dirtyKeys.length > 1 ? "s" : ""}.`}
+            </span>
+            {status ? (
+              <span className="text-xs text-faint">{status}</span>
+            ) : null}
+            <div className="ml-auto flex gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setCfg(saved)}
+                disabled={dirtyKeys.length === 0 || saving}
+              >
+                Discard
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={save}
+                disabled={dirtyKeys.length === 0 || saving}
+              >
+                {saving ? "Saving…" : "Save settings"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ────────────────────────────── Shared bits ───────────────────────────── */
+
+type Setter = <K extends keyof Config>(k: K, v: Config[K]) => void;
+
+function Card({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="card space-y-3 p-4">
+      <div>
+        <h2 className="text-sm font-bold text-ink">{title}</h2>
+        {hint ? (
+          <p className="mt-1 text-2xs leading-relaxed text-mute">{hint}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Num({
+  label,
+  value,
+  onChange,
+  step,
+  hint,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  step?: number;
+  hint?: string;
+}) {
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        type="number"
+        step={step}
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={inputClass}
+      />
+    </Field>
+  );
+}
+
+/* ────────────────────────────── Branding ─────────────────────────────── */
+
+function BrandingTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Card
+        title="Logo & name"
+        hint="The logo shows in the top-left of the navbar on every page, exactly like DexScreener. Paste an https:// image URL (PNG or SVG with a transparent background works best) or upload the file to /public in your repo and use a path such as /logo.png."
+      >
+        <Field label="App name" hint="Used in the navbar, page titles and emails.">
+          <TextInput
+            value={cfg.brand_name ?? ""}
+            onChange={(e) => set("brand_name", e.target.value)}
+            placeholder="MemePump"
+          />
+        </Field>
+
+        <Field
+          label="Logo URL"
+          hint="https://... , /logo.png, or a data:image URI. Anything else is rejected for safety."
+        >
+          <TextInput
+            value={cfg.logo_url ?? ""}
+            onChange={(e) => set("logo_url", e.target.value)}
+            placeholder="https://yourcdn.com/logo.svg"
+          />
+        </Field>
+
+        <Num
+          label="Logo height (px)"
+          value={cfg.logo_height}
+          step={1}
+          onChange={(v) => set("logo_height", v)}
+          hint="14-64. The width scales automatically."
+        />
+
+        <Switch
+          label="Show app name next to the logo"
+          hint="Turn OFF if your logo already contains the wordmark."
+          checked={Boolean(cfg.show_brand_name)}
+          onChange={(v) => set("show_brand_name", v)}
+        />
+
+        {/* Live preview so you can see the result before saving. */}
+        <div className="rounded-md border border-edge bg-base p-3">
+          <p className="mb-2 text-2xs uppercase tracking-wide text-faint">
+            Navbar preview
+          </p>
+          <div className="flex items-center gap-2">
+            {cfg.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={cfg.logo_url}
+                alt=""
+                style={{ height: cfg.logo_height || 28 }}
+                className="w-auto object-contain"
+              />
+            ) : (
+              <span className="grid h-7 w-7 place-items-center rounded-md bg-accent text-sm font-black text-white">
+                {(cfg.brand_name || "M").slice(0, 1).toUpperCase()}
+              </span>
+            )}
+            {(!cfg.logo_url || cfg.show_brand_name) && (
+              <span className="text-sm font-bold text-ink">
+                {cfg.brand_name || "MemePump"}
+              </span>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title="Favicon & accent colour"
+        hint="The favicon is the small icon in the browser tab. A square 32×32 or 64×64 PNG/SVG works best. If you leave it empty, the logo is used; if that is empty too, the bundled default icon is used."
+      >
+        <Field label="Favicon URL">
+          <TextInput
+            value={cfg.favicon_url ?? ""}
+            onChange={(e) => set("favicon_url", e.target.value)}
+            placeholder="https://yourcdn.com/favicon.png"
+          />
+        </Field>
+
+        <Field
+          label="Accent colour (hex)"
+          hint="Recolours buttons, active tabs and highlights across the whole site. Must be a hex value like #16c784."
+        >
+          <div className="flex gap-2">
+            <TextInput
+              value={cfg.accent_color ?? ""}
+              onChange={(e) => set("accent_color", e.target.value)}
+              placeholder="#3b82f6"
+            />
+            <input
+              type="color"
+              value={/^#[0-9a-f]{6}$/i.test(cfg.accent_color ?? "") ? cfg.accent_color : "#3b82f6"}
+              onChange={(e) => set("accent_color", e.target.value)}
+              className="h-10 w-12 shrink-0 cursor-pointer rounded-md border border-edge bg-base"
+              aria-label="Pick accent colour"
+            />
+          </div>
+        </Field>
+
+        {cfg.favicon_url ? (
+          <div className="flex items-center gap-2 rounded-md border border-edge bg-base p-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={cfg.favicon_url} alt="" className="h-6 w-6 rounded" />
+            <span className="text-2xs text-mute">Favicon preview</span>
+          </div>
+        ) : null}
+      </Card>
+
+      <Card
+        title="Featured tokens (pinned to the top of the scanner)"
+        hint="One token mint address per line, in display order. Leave empty for a pure live list."
+      >
+        <textarea
+          value={cfg.pinned_tokens ?? ""}
+          onChange={(e) => set("pinned_tokens", e.target.value)}
+          rows={4}
+          className={cx(inputClass, "font-mono text-xs")}
+          placeholder="So11111111111111111111111111111111111111112"
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ───────────────────────── Automation & cron ────────────────────────── */
+
+interface CronPayload {
+  cronSecretConfigured: boolean;
+  baseUrl: string;
+  jobs: CronRunInfo[];
+  schedule: Array<{
+    job: string;
+    label: string;
+    description: string;
+    everyMinutes: number;
+    url: string;
+    cronExpression: string;
+  }>;
+}
+
+function AutomationTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  const [data, setData] = useState<CronPayload | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanMsg, setScanMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    fetch("/api/admin/cron")
+      .then((r) => r.json())
+      .then((j) => setData(j.error ? null : j))
+      .catch(() => setData(null));
+  }, []);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, [load]);
 
   async function scanNow() {
     setScanning(true);
@@ -83,18 +434,593 @@ export default function AdminPage() {
       const r = await fetch("/api/scan/now", { method: "POST" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Failed");
-      const res = j.result;
+      const res = j.result ?? {};
       setScanMsg(
-        `Scanned ${res.scanned}, qualified ${res.qualified}, alerted ${res.alerted}` +
+        `Scanned ${res.scanned ?? 0}, qualified ${res.qualified ?? 0}, alerted ${res.alerted ?? 0}` +
           (res.skippedRecent ? `, skipped ${res.skippedRecent} recent` : "") +
           (res.note ? ` — ${res.note}` : ""),
       );
+      load();
     } catch (e) {
-      setScanMsg("Error: " + (e as Error).message);
+      setScanMsg(`Error: ${(e as Error).message}`);
     } finally {
       setScanning(false);
     }
   }
+
+  return (
+    <div className="space-y-3">
+      <Card
+        title="Automation switches"
+        hint="These decide WHAT the scheduled jobs are allowed to do. The schedule itself lives in cron-job.org (see below) — a job that is turned OFF here still gets called, but returns 'skipped' instead of doing work."
+      >
+        <div className="grid gap-2 md:grid-cols-2">
+          <Switch
+            label="Auto-scanner (scheduled signals)"
+            hint="The main signal engine. Must be ON for signals to arrive on a schedule."
+            checked={cfg.auto_scan_enabled}
+            onChange={(v) => set("auto_scan_enabled", v)}
+          />
+          <Switch
+            label="Limit / TP / SL keeper"
+            hint="Executes triggered orders."
+            checked={cfg.keeper_enabled}
+            onChange={(v) => set("keeper_enabled", v)}
+          />
+          <Switch
+            label="Whale tracking"
+            hint="Needs a Helius API key."
+            checked={cfg.whale_tracking_enabled}
+            onChange={(v) => set("whale_tracking_enabled", v)}
+            status={
+              cfg.whale_tracking_enabled && !cfg.helius_api_key ? (
+                <Badge tone="warn">needs Helius key</Badge>
+              ) : null
+            }
+          />
+          <Switch
+            label="New launch feed"
+            checked={cfg.launch_feed_enabled}
+            onChange={(v) => set("launch_feed_enabled", v)}
+          />
+          <Switch
+            label="AI analysis (Gemini)"
+            hint="Adds a second opinion to each signal."
+            checked={cfg.ai_enabled}
+            onChange={(v) => set("ai_enabled", v)}
+            status={
+              cfg.ai_enabled && !cfg.gemini_api_key ? (
+                <Badge tone="warn">needs Gemini key</Badge>
+              ) : null
+            }
+          />
+          <Switch
+            label="X / Twitter sentiment"
+            checked={cfg.x_feed_enabled}
+            onChange={(v) => set("x_feed_enabled", v)}
+            status={
+              cfg.x_feed_enabled && !cfg.x_bearer_token ? (
+                <Badge tone="warn">needs bearer token</Badge>
+              ) : null
+            }
+          />
+          <Switch
+            label="Copy-trade automation"
+            hint="DANGER: spends real SOL from the server signer wallet."
+            checked={cfg.copy_trade_enabled}
+            onChange={(v) => set("copy_trade_enabled", v)}
+          />
+          <Switch
+            label="Auto-buy (server-signed)"
+            hint="DANGER: spends real SOL. Spend caps and the safety gate still apply."
+            checked={cfg.auto_buy_enabled}
+            onChange={(v) => set("auto_buy_enabled", v)}
+          />
+        </div>
+
+        {cfg.auto_buy_enabled || cfg.copy_trade_enabled ? (
+          <p className="flex items-start gap-1.5 rounded-md border border-down/30 bg-down/5 p-2 text-2xs text-down">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            Auto-buy and copy-trade sign transactions with a server-held hot
+            wallet (AUTO_BUY_SIGNER_KEY). Fund it only with what you can afford
+            to lose.
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2 border-t border-edge pt-3">
+          <Button variant="success" onClick={scanNow} disabled={scanning}>
+            {scanning ? "Scanning…" : "Run a scan now"}
+          </Button>
+          {scanMsg ? <span className="text-2xs text-mute">{scanMsg}</span> : null}
+        </div>
+      </Card>
+
+      {/* ── Health panel: answers "why didn't I get signals?" ── */}
+      <Card
+        title="Cron health (last 24 hours)"
+        hint="Every scheduled job now records a heartbeat. OVERDUE means the job has not been called for more than 2.5x its interval — that points at the cron-job.org entry, not at the app."
+      >
+        {!data ? (
+          <p className="text-xs text-mute">Loading job history…</p>
+        ) : (
+          <>
+            {!data.cronSecretConfigured ? (
+              <p className="rounded-md border border-down/30 bg-down/5 p-2 text-2xs text-down">
+                CRON_SECRET is not set in your Vercel environment variables. All
+                cron endpoints are closed until you set it — that alone stops
+                every scheduled signal.
+              </p>
+            ) : null}
+
+            <div className="overflow-x-auto">
+              <table className="dtable">
+                <thead>
+                  <tr>
+                    <th className="text-left">Job</th>
+                    <th className="text-left">Last run</th>
+                    <th className="text-left">Status</th>
+                    <th className="text-right">Every</th>
+                    <th className="text-right">Runs 24h</th>
+                    <th className="text-right">Errors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.jobs.map((j) => (
+                    <tr key={j.job}>
+                      <td className="font-medium text-ink">{j.job}</td>
+                      <td className="text-mute">{timeAgo(j.lastRunAt)}</td>
+                      <td>
+                        {j.lastStatus === "error" ? (
+                          <Badge tone="down">error</Badge>
+                        ) : j.overdue ? (
+                          <Badge tone="warn">overdue</Badge>
+                        ) : j.lastStatus === "skipped" ? (
+                          <Badge tone="neutral">skipped (off)</Badge>
+                        ) : j.lastStatus === "ok" ? (
+                          <Badge tone="up">ok</Badge>
+                        ) : (
+                          <Badge tone="neutral">never run</Badge>
+                        )}
+                      </td>
+                      <td className="text-right text-mute">
+                        {j.expectedEveryMinutes}m
+                      </td>
+                      <td className="text-right">{j.runs24h}</td>
+                      <td
+                        className={cx(
+                          "text-right",
+                          j.errors24h ? "text-down" : "text-mute",
+                        )}
+                      >
+                        {j.errors24h}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {data.jobs.some((j) => j.lastError) ? (
+              <div className="space-y-1 border-t border-edge pt-2">
+                <p className="text-2xs font-semibold uppercase tracking-wide text-mute">
+                  Latest errors
+                </p>
+                {data.jobs
+                  .filter((j) => j.lastError)
+                  .map((j) => (
+                    <p key={j.job} className="text-2xs text-down">
+                      <b>{j.job}</b>: {j.lastError}
+                    </p>
+                  ))}
+              </div>
+            ) : null}
+          </>
+        )}
+      </Card>
+
+      <Card
+        title="cron-job.org setup"
+        hint="Create one cron-job.org job per row. Method GET, and add the header Authorization: Bearer YOUR_CRON_SECRET (or append ?key=YOUR_CRON_SECRET to the URL). Enable its failure notifications so you hear about outages."
+      >
+        {data ? (
+          <div className="space-y-2">
+            {data.schedule.map((s) => (
+              <div
+                key={s.job}
+                className="rounded-md border border-edge bg-base p-2.5"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-ink">
+                    {s.label}
+                  </span>
+                  <Badge tone="accent">every {s.everyMinutes}m</Badge>
+                  <code className="text-2xs text-mute">{s.cronExpression}</code>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="ml-auto"
+                    onClick={() => navigator.clipboard?.writeText(s.url)}
+                  >
+                    Copy URL
+                  </Button>
+                </div>
+                <code className="mt-1 block break-all text-2xs text-faint">
+                  {s.url}
+                </code>
+                <p className="mt-1 text-2xs text-mute">{s.description}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Card>
+
+      <Card
+        title="Whale watchlist (smart money)"
+        hint="One wallet address per line, with an optional label after the address. Requires whale tracking ON, a Helius key, and Telegram alerts configured."
+      >
+        <textarea
+          value={cfg.whale_wallets ?? ""}
+          onChange={(e) => set("whale_wallets", e.target.value)}
+          rows={5}
+          className={cx(inputClass, "font-mono text-xs")}
+          placeholder="So11111111111111111111111111111111111111112  Alpha whale"
+        />
+      </Card>
+    </div>
+  );
+}
+
+/* ──────────────────────────────── Ads ───────────────────────────────── */
+
+interface SlotInfo {
+  id: AdSlotId;
+  label: string;
+  description: string;
+  recommended: string;
+}
+
+const BLANK_AD = {
+  id: "",
+  slot: "top_banner" as AdSlotId,
+  title: "",
+  imageUrl: "",
+  linkUrl: "",
+  html: "",
+  enabled: true,
+  weight: 1,
+};
+
+function AdsTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  const [ads, setAds] = useState<AdCreative[] | null>(null);
+  const [slots, setSlots] = useState<SlotInfo[]>([]);
+  const [draft, setDraft] = useState<typeof BLANK_AD | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    fetch("/api/admin/ads")
+      .then((r) => r.json())
+      .then((j) => {
+        setAds(j.ads ?? []);
+        setSlots(j.slots ?? []);
+      })
+      .catch(() => setAds([]));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // The ads master switch saves immediately — this tab has no sticky save bar.
+  async function toggleAdsMaster(v: boolean) {
+    set("ads_enabled", v);
+    await fetch("/api/admin/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ads_enabled: v }),
+    });
+    setMsg(v ? "Ads are now live on the site." : "Ads hidden site-wide.");
+  }
+
+  async function saveAd() {
+    if (!draft) return;
+    setMsg("Saving…");
+    const r = await fetch("/api/admin/ads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(draft),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      setMsg(`Error: ${j.error ?? "Failed"}`);
+      return;
+    }
+    setMsg("Saved.");
+    setDraft(null);
+    load();
+  }
+
+  async function removeAd(id: string) {
+    await fetch(`/api/admin/ads?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    load();
+  }
+
+  return (
+    <div className="space-y-3">
+      <Card
+        title="Ads master switch"
+        hint="When OFF, no ad markup is sent to the browser at all and the layout collapses as if the slots did not exist."
+      >
+        <Switch
+          label="Show ads on the website"
+          checked={Boolean(cfg.ads_enabled)}
+          onChange={toggleAdsMaster}
+        />
+        {msg ? <p className="text-2xs text-mute">{msg}</p> : null}
+      </Card>
+
+      <Card
+        title="Ad placements"
+        hint="Each creative belongs to one slot. If several creatives share a slot, one is chosen per page view using its weight, so you can rotate or A/B them."
+      >
+        <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {slots.map((s) => (
+            <div key={s.id} className="rounded-md border border-edge bg-base p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-ink">{s.label}</span>
+                <Badge tone="neutral">{s.recommended}</Badge>
+              </div>
+              <p className="mt-1 text-2xs text-mute">{s.description}</p>
+              <Button
+                size="xs"
+                variant="outline"
+                className="mt-2"
+                onClick={() => setDraft({ ...BLANK_AD, slot: s.id })}
+              >
+                Add creative
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        {ads === null ? (
+          <p className="text-xs text-mute">Loading creatives…</p>
+        ) : ads.length === 0 ? (
+          <p className="text-xs text-mute">
+            No ad creatives yet. Pick a slot above to create your first one.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="dtable">
+              <thead>
+                <tr>
+                  <th className="text-left">Slot</th>
+                  <th className="text-left">Title</th>
+                  <th className="text-left">Type</th>
+                  <th className="text-left">State</th>
+                  <th className="text-right">Weight</th>
+                  <th className="text-right">Views</th>
+                  <th className="text-right">Clicks</th>
+                  <th className="text-right">CTR</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {ads.map((a) => (
+                  <tr key={a.id}>
+                    <td className="text-mute">{a.slot}</td>
+                    <td className="text-ink">{a.title ?? "—"}</td>
+                    <td className="text-mute">
+                      {a.imageUrl ? "image" : "html"}
+                    </td>
+                    <td>
+                      {a.enabled ? (
+                        <Badge tone="up">on</Badge>
+                      ) : (
+                        <Badge tone="neutral">off</Badge>
+                      )}
+                    </td>
+                    <td className="text-right">{a.weight}</td>
+                    <td className="text-right">{a.impressions.toLocaleString()}</td>
+                    <td className="text-right">{a.clicks.toLocaleString()}</td>
+                    <td className="text-right text-mute">
+                      {a.impressions > 0
+                        ? `${((a.clicks / a.impressions) * 100).toFixed(2)}%`
+                        : "—"}
+                    </td>
+                    <td className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() =>
+                            setDraft({
+                              id: a.id,
+                              slot: a.slot,
+                              title: a.title ?? "",
+                              imageUrl: a.imageUrl ?? "",
+                              linkUrl: a.linkUrl ?? "",
+                              html: a.html ?? "",
+                              enabled: a.enabled,
+                              weight: a.weight,
+                            })
+                          }
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="danger"
+                          onClick={() => removeAd(a.id)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        open={draft !== null}
+        onClose={() => setDraft(null)}
+        title={draft?.id ? "Edit ad creative" : "New ad creative"}
+        wide
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setDraft(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={saveAd}>
+              Save creative
+            </Button>
+          </>
+        }
+      >
+        {draft ? (
+          <div className="space-y-3">
+            <Field label="Slot">
+              <select
+                value={draft.slot}
+                onChange={(e) =>
+                  setDraft({ ...draft, slot: e.target.value as AdSlotId })
+                }
+                className={inputClass}
+              >
+                {slots.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label} ({s.recommended})
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Internal title" hint="Only you see this — used to identify the creative.">
+              <TextInput
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                placeholder="Exchange partner — July"
+              />
+            </Field>
+
+            <Field
+              label="Banner image URL"
+              hint="Use this for a simple image ad. Leave empty if you are pasting an ad-network snippet below."
+            >
+              <TextInput
+                value={draft.imageUrl}
+                onChange={(e) => setDraft({ ...draft, imageUrl: e.target.value })}
+                placeholder="https://cdn.example.com/banner-728x90.png"
+              />
+            </Field>
+
+            <Field label="Click-through URL" hint="Where the ad sends the user. Clicks are counted.">
+              <TextInput
+                value={draft.linkUrl}
+                onChange={(e) => setDraft({ ...draft, linkUrl: e.target.value })}
+                placeholder="https://partner.example.com/?ref=you"
+              />
+            </Field>
+
+            <Field
+              label="Or paste an ad-network snippet (HTML / script)"
+              hint="For Google AdSense, Coinzilla, A-ADS etc. Scripts here execute on the public site — only paste code you trust."
+            >
+              <textarea
+                value={draft.html}
+                onChange={(e) => setDraft({ ...draft, html: e.target.value })}
+                rows={5}
+                className={cx(inputClass, "font-mono text-xs")}
+                placeholder='<script async src="https://..."></script>'
+              />
+            </Field>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Num
+                label="Rotation weight"
+                value={draft.weight}
+                step={0.5}
+                onChange={(v) => setDraft({ ...draft, weight: v })}
+                hint="Higher = shown more often when a slot has several creatives."
+              />
+              <Switch
+                label="Creative is active"
+                checked={draft.enabled}
+                onChange={(v) => setDraft({ ...draft, enabled: v })}
+              />
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+    </div>
+  );
+}
+
+/* ────────────────────────── Signals / alerts / keys ──────────────────── */
+
+function SignalsTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Card
+        title="Signal gates"
+        hint="The engine now normalises its score against how much evidence exists, and refuses to issue a directional call on a token with fewer than 20 candles of price history. These thresholds decide what is worth alerting."
+      >
+        <Num
+          label="Min confidence to alert (%)"
+          value={cfg.min_signal_confidence}
+          step={5}
+          onChange={(v) => set("min_signal_confidence", v)}
+          hint="55-70 is a sensible band. Higher = fewer, stronger alerts."
+        />
+        <Num
+          label="Required safety score (0-100)"
+          value={cfg.require_safe_score}
+          step={5}
+          onChange={(v) => set("require_safe_score", v)}
+        />
+        <Num
+          label="Min liquidity (USD)"
+          value={cfg.min_liquidity_usd}
+          step={500}
+          onChange={(v) => set("min_liquidity_usd", v)}
+          hint="Thin pools produce noisy candles, which is a common cause of bad signals."
+        />
+      </Card>
+
+      <Card title="Spend rails (auto-buy & copy-trade)">
+        <Num
+          label="Max SOL per buy"
+          value={cfg.max_buy_sol}
+          step={0.01}
+          onChange={(v) => set("max_buy_sol", v)}
+        />
+        <Num
+          label="Daily spend cap (SOL)"
+          value={cfg.daily_spend_cap_sol}
+          step={0.1}
+          onChange={(v) => set("daily_spend_cap_sol", v)}
+        />
+        <Num
+          label="Slippage (bps)"
+          value={cfg.slippage_bps}
+          step={10}
+          onChange={(v) => set("slippage_bps", v)}
+          hint="100 bps = 1%."
+        />
+      </Card>
+    </div>
+  );
+}
+
+function AlertsTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  const [testTo, setTestTo] = useState("");
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
 
   async function sendTestEmail() {
     setTesting(true);
@@ -107,195 +1033,190 @@ export default function AdminPage() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? "Failed");
-      setTestMsg("Sent. Check the inbox (and spam folder).");
+      setTestMsg("Sent. Check the inbox and the spam folder.");
     } catch (e) {
-      setTestMsg("Error: " + (e as Error).message);
+      setTestMsg(`Error: ${(e as Error).message}`);
     } finally {
       setTesting(false);
     }
   }
 
-  function set<K extends keyof Config>(k: K, v: Config[K]) {
-    setCfg((c) => (c ? { ...c, [k]: v } : c));
-  }
-
-  if (forbidden) {
-    return (
-      <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-red-400">
-        Admin access required. Sign in as the owner/admin (the first person who
-        signed up is the owner).
-      </div>
-    );
-  }
-  if (!cfg) return <div className="text-slate-500">Loading…</div>;
-
   return (
-    <div className="space-y-6 max-w-2xl">
-      <h1 className="flex items-center gap-2 text-lg font-bold text-white">
-        <ShieldCheck size={20} className="text-emerald-400" /> Admin Panel
-      </h1>
-
-      <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-3 py-2 text-xs text-indigo-200/90">
-        You can see this panel because you are an owner/admin. The very first
-        person to sign in became the permanent <b>owner</b>; new sign-ups are
-        always plain viewers, so the admin never changes when others register.
-        Manage everyone in <b>Members &amp; roles</b> below.
-      </div>
-
-      <Section title="Feature toggles">
-        <Toggle label="Whale tracking" on={cfg.whale_tracking_enabled} onChange={(v) => set("whale_tracking_enabled", v)} />
-        <Toggle label="Launch feed (new tokens)" on={cfg.launch_feed_enabled} onChange={(v) => set("launch_feed_enabled", v)} />
-        <Toggle label="X / Twitter feed (into signal score)" on={cfg.x_feed_enabled} onChange={(v) => set("x_feed_enabled", v)} />
-        <Toggle label="AI analysis (Gemini)" on={cfg.ai_enabled} onChange={(v) => set("ai_enabled", v)} />
-        <Toggle label="Telegram alerts" on={cfg.telegram_alerts_enabled} onChange={(v) => set("telegram_alerts_enabled", v)} />
-        <Toggle label="Auto-scanner (scheduled alerts)" on={cfg.auto_scan_enabled} onChange={(v) => set("auto_scan_enabled", v)} />
-        <Toggle label="Limit / TP / SL keeper" on={cfg.keeper_enabled} onChange={(v) => set("keeper_enabled", v)} />
-        <Toggle label="Copy-trade automation" on={cfg.copy_trade_enabled} onChange={(v) => set("copy_trade_enabled", v)} danger />
-        <Toggle
-          label="Auto-buy (server-signed)"
-          on={cfg.auto_buy_enabled}
-          onChange={(v) => set("auto_buy_enabled", v)}
-          danger
+    <div className="grid gap-3 lg:grid-cols-2">
+      <Card title="Telegram">
+        <Switch
+          label="Telegram alerts"
+          checked={cfg.telegram_alerts_enabled}
+          onChange={(v) => set("telegram_alerts_enabled", v)}
+          status={
+            cfg.telegram_alerts_enabled &&
+            !(cfg.telegram_bot_token && cfg.telegram_chat_id) ? (
+              <Badge tone="warn">needs token + chat id</Badge>
+            ) : null
+          }
         />
-        {(cfg.auto_buy_enabled || cfg.copy_trade_enabled) && (
-          <p className="flex items-start gap-1.5 text-xs text-red-300/80">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            Auto-buy / copy-trade sign transactions with a server-held hot
-            wallet (AUTO_BUY_SIGNER_KEY). Fund it with only what you can afford to
-            lose. Every buy still passes the safety-score gate and spend caps below.
-          </p>
-        )}
-      </Section>
+        <Field label="Bot token" hint="From @BotFather. Paste a new value to change it.">
+          <TextInput
+            value={cfg.telegram_bot_token ?? ""}
+            onChange={(e) => set("telegram_bot_token", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="Broadcast chat ID" hint="e.g. 123456789, or -100... for a group.">
+          <TextInput
+            value={cfg.telegram_chat_id ?? ""}
+            onChange={(e) => set("telegram_chat_id", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+      </Card>
 
-      <Section title="Auto-scanner">
-        <p className="text-xs text-slate-500">
-          When enabled, a scheduled job (Vercel Cron, every 15 min) scans trending
-          tokens, builds full signals, and sends bullish setups at or above your min
-          confidence to Telegram. It de-dupes so the same token isn't spammed.
-          Requires Telegram alerts to be configured. You can also run it on demand:
-        </p>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={scanNow}
-            disabled={scanning}
-            className="px-3 py-2 rounded-lg text-sm bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+      <Card title="Email (SMTP)" hint="Save first, then send a test. The test bypasses the on/off switch.">
+        <Switch
+          label="Email notifications"
+          checked={cfg.email_notifications_enabled}
+          onChange={(v) => set("email_notifications_enabled", v)}
+        />
+        <Field label="SMTP host">
+          <TextInput
+            value={cfg.smtp_host ?? ""}
+            onChange={(e) => set("smtp_host", e.target.value)}
+            placeholder="smtp.resend.com"
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Num
+            label="SMTP port"
+            value={cfg.smtp_port}
+            step={1}
+            onChange={(v) => set("smtp_port", v)}
+          />
+          <Switch
+            label="Implicit TLS (port 465)"
+            checked={cfg.smtp_secure}
+            onChange={(v) => set("smtp_secure", v)}
+          />
+        </div>
+        <Field label="SMTP username">
+          <TextInput
+            value={cfg.smtp_user ?? ""}
+            onChange={(e) => set("smtp_user", e.target.value)}
+          />
+        </Field>
+        <Field label="SMTP password" hint="Stored masked. Paste a new value to change it.">
+          <TextInput
+            value={cfg.smtp_pass ?? ""}
+            onChange={(e) => set("smtp_pass", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="From address">
+          <TextInput
+            value={cfg.smtp_from ?? ""}
+            onChange={(e) => set("smtp_from", e.target.value)}
+            placeholder='"MemePump" <alerts@yourdomain.com>'
+          />
+        </Field>
+
+        <div className="flex gap-2 border-t border-edge pt-3">
+          <TextInput
+            value={testTo}
+            onChange={(e) => setTestTo(e.target.value)}
+            placeholder="you@example.com"
+          />
+          <Button
+            variant="success"
+            onClick={sendTestEmail}
+            disabled={testing || !testTo}
           >
-            {scanning ? "Scanning…" : "Scan now"}
-          </button>
-          {scanMsg && <span className="text-xs text-slate-300">{scanMsg}</span>}
-        </div>
-      </Section>
-
-      <Section title="AI analysis">
-        <Field label="Gemini API key" value={cfg.gemini_api_key} onChange={(v) => set("gemini_api_key", v)} placeholder="paste to change (free at aistudio.google.com)" />
-        <p className="text-xs text-slate-500">
-          When on, each token's signal includes a Gemini directional lean + reasoning.
-          It's an opinion on real data — never a guarantee.
-        </p>
-      </Section>
-
-      <Section title="Telegram alerts">
-        <Field label="Bot token" value={cfg.telegram_bot_token} onChange={(v) => set("telegram_bot_token", v)} placeholder="from @BotFather (paste to change)" />
-        <Field label="Chat ID (where global alerts are sent)" value={cfg.telegram_chat_id} onChange={(v) => set("telegram_chat_id", v)} placeholder="e.g. 123456789 or -100… for a group" />
-        <p className="text-xs text-slate-500">
-          Use “Send to Telegram” on any token to broadcast its signal. Users set
-          their own personal alert chat id on the Account page.
-        </p>
-      </Section>
-
-      <Section title="Whale watchlist (smart money)">
-        <p className="text-xs text-slate-500">
-          One wallet address per line, with an optional label after the address
-          (for example: So1111... Alpha whale). When any of these wallets buys a
-          token, the whale-signal job runs the full analysis and, if the buy is
-          bullish and clears your safety and confidence gates, sends a Telegram
-          signal tagged with the whale. Requires Whale tracking ON, a Helius key,
-          and Telegram alerts configured above.
-        </p>
-        <textarea
-          value={cfg.whale_wallets ?? ""}
-          onChange={(e) => set("whale_wallets", e.target.value)}
-          rows={5}
-          placeholder="So11111111111111111111111111111111111111112  Whale label"
-          className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
-        />
-      </Section>
-
-      <Section title="Featured tokens (top of scanner)">
-        <p className="text-xs text-slate-500">
-          One token mint address per line. These are pinned to the very top of the
-          Scanner list, in order (top-1, top-2, top-3, ...). Leave empty for a pure
-          live/trending list.
-        </p>
-        <textarea
-          value={cfg.pinned_tokens ?? ""}
-          onChange={(e) => set("pinned_tokens", e.target.value)}
-          rows={4}
-          placeholder="So11111111111111111111111111111111111111112"
-          className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
-        />
-      </Section>
-
-      <Section title="Trading fee (hidden)">
-        <Toggle label="Charge a platform fee on trades" on={cfg.fee_enabled} onChange={(v) => set("fee_enabled", v)} />
-        <NumField label="Fee percent (% of trade SOL)" value={cfg.fee_percent} step={0.1} onChange={(v) => set("fee_percent", v)} />
-        <Field label="Fee destination wallet (SOL address)" value={cfg.fee_wallet} onChange={(v) => set("fee_wallet", v)} placeholder="Your SOL address to receive fees" />
-        <p className="flex items-start gap-1.5 text-xs text-amber-300/80">
-          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-          The fee is skimmed as an extra SOL transfer to this address on each in-app
-          custodial trade. Non-custodial swaps signed by a user's own external
-          wallet cannot be charged a hidden fee.
-        </p>
-      </Section>
-
-      <Section title="Email notifications (SMTP)">
-        <Toggle label="Email notifications" on={cfg.email_notifications_enabled} onChange={(v) => set("email_notifications_enabled", v)} />
-        <Field label="SMTP host" value={cfg.smtp_host} onChange={(v) => set("smtp_host", v)} placeholder="e.g. smtp.gmail.com / smtp.resend.com" />
-        <NumField label="SMTP port" value={cfg.smtp_port} step={1} onChange={(v) => set("smtp_port", v)} />
-        <Toggle label="Use implicit TLS (port 465)" on={cfg.smtp_secure} onChange={(v) => set("smtp_secure", v)} />
-        <Field label="SMTP username" value={cfg.smtp_user} onChange={(v) => set("smtp_user", v)} placeholder="SMTP login (often your email)" />
-        <Field label="SMTP password" value={cfg.smtp_pass} onChange={(v) => set("smtp_pass", v)} placeholder="paste to change (app password / API key)" />
-        <Field label="From address" value={cfg.smtp_from} onChange={(v) => set("smtp_from", v)} placeholder={'"MemePump" <alerts@yourdomain.com>'} />
-        <p className="text-xs text-slate-500">
-          Users receive trade &amp; price alerts at the email set on their Account page.
-          Save first, then send a test to confirm SMTP works (the test bypasses the on/off toggle).
-        </p>
-        <div className="flex items-center gap-2">
-          <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@example.com" className="flex-1 bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono" />
-          <button onClick={sendTestEmail} disabled={testing || !testTo} className="px-3 py-2 rounded-lg text-sm bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50">
             {testing ? "Sending…" : "Send test"}
-          </button>
+          </Button>
         </div>
-        {testMsg && <span className="text-xs text-slate-300">{testMsg}</span>}
-      </Section>
-
-      <Section title="Data providers (server-side secrets)">
-        <Field label="Solana RPC URL" value={cfg.rpc_url} onChange={(v) => set("rpc_url", v)} placeholder="https://… (Helius/Triton/QuickNode)" />
-        <Field label="Helius API key (whales, holders)" value={cfg.helius_api_key} onChange={(v) => set("helius_api_key", v)} placeholder="paste to change" />
-        <Field label="Birdeye API key (optional)" value={cfg.birdeye_api_key} onChange={(v) => set("birdeye_api_key", v)} placeholder="paste to change" />
-        <Field label="X / Twitter bearer token" value={cfg.x_bearer_token} onChange={(v) => set("x_bearer_token", v)} placeholder="paste to change (needed for social feed)" />
-      </Section>
-
-      <Section title="Signal & auto-buy risk rails">
-        <NumField label="Min signal confidence to alert (%)" value={cfg.min_signal_confidence} step={5} onChange={(v) => set("min_signal_confidence", v)} />
-        <NumField label="Max SOL per buy" value={cfg.max_buy_sol} step={0.01} onChange={(v) => set("max_buy_sol", v)} />
-        <NumField label="Daily spend cap (SOL)" value={cfg.daily_spend_cap_sol} step={0.1} onChange={(v) => set("daily_spend_cap_sol", v)} />
-        <NumField label="Slippage (bps)" value={cfg.slippage_bps} step={10} onChange={(v) => set("slippage_bps", v)} />
-        <NumField label="Min liquidity (USD)" value={cfg.min_liquidity_usd} step={500} onChange={(v) => set("min_liquidity_usd", v)} />
-        <NumField label="Required safety score (0-100)" value={cfg.require_safe_score} step={5} onChange={(v) => set("require_safe_score", v)} />
-      </Section>
-
-      <div className="flex items-center gap-3">
-        <button onClick={save} className="px-4 py-2 rounded-lg text-sm bg-indigo-600 hover:bg-indigo-500 text-white">
-          Save settings
-        </button>
-        {status && <span className="text-sm text-slate-300">{status}</span>}
-      </div>
-
-      <Members />
+        {testMsg ? <p className="text-2xs text-mute">{testMsg}</p> : null}
+      </Card>
     </div>
   );
 }
+
+function ProvidersTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  return (
+    <Card
+      title="Data providers"
+      hint="Server-side only — never sent to the browser. Existing values are shown masked; paste a new value to replace one."
+    >
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Field label="Solana RPC URL" hint="Helius / Triton / QuickNode. The public RPC is heavily rate-limited.">
+          <TextInput
+            value={cfg.rpc_url ?? ""}
+            onChange={(e) => set("rpc_url", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="Helius API key" hint="Whales, holders, launches.">
+          <TextInput
+            value={cfg.helius_api_key ?? ""}
+            onChange={(e) => set("helius_api_key", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="Gemini API key" hint="Free at aistudio.google.com. Powers AI analysis.">
+          <TextInput
+            value={cfg.gemini_api_key ?? ""}
+            onChange={(e) => set("gemini_api_key", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="X / Twitter bearer token" hint="Needed for social sentiment.">
+          <TextInput
+            value={cfg.x_bearer_token ?? ""}
+            onChange={(e) => set("x_bearer_token", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+        <Field label="Birdeye API key" hint="Optional price backup.">
+          <TextInput
+            value={cfg.birdeye_api_key ?? ""}
+            onChange={(e) => set("birdeye_api_key", e.target.value)}
+            className="font-mono"
+          />
+        </Field>
+      </div>
+    </Card>
+  );
+}
+
+function TradingTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  return (
+    <Card
+      title="Platform trading fee"
+      hint="Charged as an extra SOL transfer on in-app custodial trades. Swaps signed by a user's own external wallet cannot be charged."
+    >
+      <Switch
+        label="Charge a platform fee on trades"
+        checked={cfg.fee_enabled}
+        onChange={(v) => set("fee_enabled", v)}
+      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Num
+          label="Fee percent (% of trade SOL)"
+          value={cfg.fee_percent}
+          step={0.1}
+          onChange={(v) => set("fee_percent", v)}
+        />
+        <Field label="Fee destination wallet">
+          <TextInput
+            value={cfg.fee_wallet ?? ""}
+            onChange={(e) => set("fee_wallet", e.target.value)}
+            className="font-mono"
+            placeholder="Your SOL address"
+          />
+        </Field>
+      </div>
+    </Card>
+  );
+}
+
+/* ────────────────────────────── Members ────────────────────────────── */
 
 interface Member {
   id: string;
@@ -312,18 +1233,16 @@ function Members() {
   const [msg, setMsg] = useState<string | null>(null);
   const roles = ["viewer", "trader", "admin", "owner"];
 
-  async function load() {
-    const r = await fetch("/api/admin/users");
-    if (!r.ok) {
-      setUsers([]);
-      return;
-    }
-    const j = await r.json();
-    setUsers(j.users ?? []);
-  }
+  const load = useCallback(() => {
+    fetch("/api/admin/users")
+      .then((r) => (r.ok ? r.json() : { users: [] }))
+      .then((j) => setUsers(j.users ?? []))
+      .catch(() => setUsers([]));
+  }, []);
+
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   async function setRole(userId: string, role: string) {
     setMsg("Updating…");
@@ -333,96 +1252,52 @@ function Members() {
       body: JSON.stringify({ userId, role }),
     });
     const j = await r.json();
-    setMsg(r.ok ? "Updated." : "Error: " + (j.error ?? "Failed"));
+    setMsg(r.ok ? "Updated." : `Error: ${j.error ?? "Failed"}`);
     load();
   }
 
   return (
-    <Section title="Members & roles">
-      <p className="text-xs text-slate-500">
-        The first person to sign in is the <b>owner</b>. Only an owner can grant
-        admin/owner. Hierarchy: viewer → trader → admin → owner.
-      </p>
-      {!users && <div className="text-slate-500 text-sm">Loading…</div>}
-      {users && users.length === 0 && (
-        <div className="text-slate-500 text-sm">No members yet.</div>
-      )}
-      {users?.map((u) => (
-        <div key={u.id} className="flex items-center justify-between gap-2 border-t border-edge pt-2">
-          <span className="text-sm font-mono text-slate-300 truncate">
-            {u.wallet_address
-              ? shortAddr(u.wallet_address)
-              : u.telegram_username
-                ? "@" + u.telegram_username
-                : u.display_name ?? u.id.slice(0, 8)}
-          </span>
-          <select
-            value={u.role}
-            onChange={(e) => setRole(u.id, e.target.value)}
-            className="bg-base border border-edge rounded px-2 py-1 text-sm"
+    <Card
+      title="Members & roles"
+      hint="The first person who ever signed in is the permanent owner. Only an owner can grant admin or owner. Hierarchy: viewer → trader → admin → owner."
+    >
+      {users === null ? <p className="text-xs text-mute">Loading…</p> : null}
+      {users?.length === 0 ? (
+        <p className="text-xs text-mute">No members yet.</p>
+      ) : null}
+      <div className="space-y-1">
+        {users?.map((u) => (
+          <div
+            key={u.id}
+            className="flex items-center justify-between gap-2 rounded-md border border-edge bg-base px-3 py-2"
           >
-            {roles.map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
-          </select>
-        </div>
-      ))}
-      {msg && <span className="text-xs text-slate-300">{msg}</span>}
-    </Section>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-edge bg-panel p-4 space-y-3">
-      <div className="text-sm font-bold uppercase tracking-wide text-slate-400">{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function Toggle({ label, on, onChange, danger }: { label: string; on: boolean; onChange: (v: boolean) => void; danger?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-slate-200">{label}</span>
-      <button
-        onClick={() => onChange(!on)}
-        className={
-          "relative w-11 h-6 rounded-full transition-colors " +
-          (on ? (danger ? "bg-red-500" : "bg-emerald-500") : "bg-slate-600")
-        }
-      >
-        <span className={"absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform " + (on ? "translate-x-5" : "translate-x-0.5")} />
-      </button>
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <label className="block">
-      <div className="text-xs text-slate-400 mb-1">{label}</div>
-      <input
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
-      />
-    </label>
-  );
-}
-
-function NumField({ label, value, onChange, step }: { label: string; value: number; onChange: (v: number) => void; step?: number }) {
-  return (
-    <label className="block">
-      <div className="text-xs text-slate-400 mb-1">{label}</div>
-      <input
-        type="number"
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono"
-      />
-    </label>
+            <div className="min-w-0">
+              <span className="block truncate font-mono text-xs text-ink">
+                {u.wallet_address
+                  ? shortAddr(u.wallet_address)
+                  : u.telegram_username
+                    ? `@${u.telegram_username}`
+                    : (u.display_name ?? u.id.slice(0, 8))}
+              </span>
+              <span className="text-2xs text-faint">
+                last seen {timeAgo(u.last_login_at)}
+              </span>
+            </div>
+            <select
+              value={u.role}
+              onChange={(e) => setRole(u.id, e.target.value)}
+              className="rounded-md border border-edge bg-base px-2 py-1 text-xs"
+            >
+              {roles.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      {msg ? <p className="text-2xs text-mute">{msg}</p> : null}
+    </Card>
   );
 }
