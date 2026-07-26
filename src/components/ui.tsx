@@ -432,31 +432,52 @@ export function SortTh<T extends string>({
 
 /* ─────────────────────────── Misc ─────────────────────────── */
 
-/** Buy vs sell split bar used on the token page. */
+/**
+ * Two-sided proportion bar (buys vs sells, traders in vs out, and so on).
+ *
+ * Accepts either the generic `left`/`right` pair with custom captions, or the
+ * original `buys`/`sells` pair which auto-captions itself. Both shapes are
+ * supported so existing call sites keep working.
+ */
 export function SplitBar({
+  label,
+  left,
+  right,
+  leftLabel,
+  rightLabel,
   buys,
   sells,
-  label,
 }: {
-  buys: number;
-  sells: number;
   label: string;
+  left?: number;
+  right?: number;
+  leftLabel?: string;
+  rightLabel?: string;
+  buys?: number;
+  sells?: number;
 }) {
-  const total = buys + sells;
-  const buyPct = total > 0 ? (buys / total) * 100 : 50;
+  const leftValue = left ?? buys ?? 0;
+  const rightValue = right ?? sells ?? 0;
+  const total = leftValue + rightValue;
+  // With no activity at all, show an even split rather than a full green bar.
+  const leftPct = total > 0 ? (leftValue / total) * 100 : 50;
+
+  const leftText = leftLabel ?? "buys " + leftValue.toLocaleString();
+  const rightText = rightLabel ?? "sells " + rightValue.toLocaleString();
+
   return (
     <div>
-      <div className="flex justify-between text-2xs text-mute">
-        <span>
-          {label} buys <span className="text-up">{buys.toLocaleString()}</span>
-        </span>
-        <span>
-          sells <span className="text-down">{sells.toLocaleString()}</span>
+      <div className="flex items-baseline justify-between gap-2 text-2xs text-mute">
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 whitespace-nowrap">
+          <span className="text-up">{leftText}</span>
+          <span className="px-1 text-faint">/</span>
+          <span className="text-down">{rightText}</span>
         </span>
       </div>
       <div className="mt-1 flex h-1.5 overflow-hidden rounded-full bg-panel2">
-        <div className="bg-up" style={{ width: `${buyPct}%` }} />
-        <div className="bg-down" style={{ width: `${100 - buyPct}%` }} />
+        <div className="bg-up" style={{ width: `${leftPct}%` }} />
+        <div className="bg-down" style={{ width: `${100 - leftPct}%` }} />
       </div>
     </div>
   );
