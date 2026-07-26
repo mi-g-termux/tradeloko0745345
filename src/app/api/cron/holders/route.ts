@@ -17,7 +17,9 @@ export async function GET(req: Request) {
       };
     }
     const { data } = await db.from("watchlist").select("token_address").limit(40);
-    const tokens = [...new Set((data ?? []).map((r) => r.token_address))];
+    const tokens = [
+      ...new Set((data ?? []).map((r) => String(r.token_address)).filter(Boolean)),
+    ];
     let snapshotted = 0;
     for (const t of tokens) {
       if (await snapshotHolders(t).catch(() => false)) snapshotted++;

@@ -149,17 +149,17 @@ export function SignalPanel({ address }: { address: string }) {
                   <li key={i} className="text-[11px] text-slate-400">
                     <span
                       className={
-                        f.score > 0
+                        f.points > 0
                           ? "text-emerald-400"
-                          : f.score < 0
+                          : f.points < 0
                             ? "text-red-400"
                             : "text-slate-500"
                       }
                     >
-                      {f.score > 0 ? "+" : ""}
-                      {f.score}
+                      {f.points > 0 ? "+" : ""}
+                      {f.points}
                     </span>{" "}
-                    <b>{f.label}</b> · weight {f.weight} — {f.detail}
+                    <b>{f.label}</b> — {f.detail}
                   </li>
                 ))}
               </ul>
