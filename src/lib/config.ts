@@ -80,8 +80,8 @@ export function appBaseUrl(): string {
  * appears broken. Use this helper for outbound links and omit the link when it
  * returns "".
  */
-export function publicBaseUrl(): string {
-  const raw = (SERVER_ENV.appUrl || "").trim().replace(/\/+$/, "");
+function normalizePublicOrigin(input: string): string {
+  const raw = (input || "").trim().replace(/\/+$/, "");
   if (!raw) return "";
   let u: URL;
   try {
@@ -105,4 +105,63 @@ export function publicBaseUrl(): string {
     return "";
   }
   return u.origin + (u.pathname === "/" ? "" : u.pathname);
+}
+
+/**
+ * Last public origin actually observed on an incoming request.
+ *
+ * Background work (cron jobs building Telegram buttons, emails) has no request
+ * of its own, so without this it can only fall back to env vars. Any request
+ * that reaches the app teaches us the real host the site is served on, which
+ * makes the deployment portable: Vercel, cPanel, Render, or a custom domain all
+ * work with zero configuration.
+ */
+let observedOrigin = "";
+
+/**
+ * Resolve the site's base URL from an incoming request.
+ *
+ * This is the authoritative source, because it is the host the visitor actually
+ * typed. Honors the standard reverse-proxy headers that cPanel/Apache, Nginx,
+ * Render and Vercel all set. Falls back to the configured env var.
+ */
+export function baseUrlFromRequest(req: Request): string {
+  const h = req.headers;
+  const forwardedHost = (h.get("x-forwarded-host") ?? "").split(",")[0].trim();
+  const host = forwardedHost || (h.get("host") ?? "").trim();
+  if (host) {
+    const proto =
+      (h.get("x-forwarded-proto") ?? "").split(",")[0].trim() ||
+      (host.startsWith("localhost") || host.startsWith("127.0.0.1")
+        ? "http"
+        : "https");
+    const candidate = normalizePublicOrigin(proto + "://" + host);
+    if (candidate) {
+      observedOrigin = candidate;
+      return candidate;
+    }
+    // Local dev: not publicly reachable, but still the correct base for links
+    // rendered back to this same developer.
+    try {
+      return new URL(proto + "://" + host).origin;
+    } catch {
+      /* fall through to env */
+    }
+  }
+  return appBaseUrl();
+}
+
+/**
+ * Record the origin of an incoming request so later background jobs can build
+ * absolute links without any env var being set.
+ */
+export function rememberBaseUrl(req: Request): void {
+  baseUrlFromRequest(req);
+}
+
+export function publicBaseUrl(): string {
+  // Explicit configuration wins, so an admin can force a canonical domain even
+  // when the app is reachable on several hostnames. Otherwise use whatever host
+  // real traffic arrived on.
+  return normalizePublicOrigin(SERVER_ENV.appUrl) || observedOrigin;
 }

@@ -118,6 +118,16 @@ export default function AdminPage() {
     load();
   }, [load]);
 
+  // /admin is the ONLY entry point to admin email sign-in. The link is
+  // deliberately absent from the public nav so regular visitors never see an
+  // option they cannot use (and so the admin door is not advertised). Anyone
+  // hitting /admin without an admin session is forwarded to the code form.
+  useEffect(() => {
+    if (!forbidden) return;
+    const t = setTimeout(() => window.location.replace("/signin"), 900);
+    return () => clearTimeout(t);
+  }, [forbidden]);
+
   const dirtyKeys = useMemo(() => {
     if (!cfg || !saved) return [] as string[];
     return (Object.keys(cfg) as Array<keyof Config>).filter(
@@ -152,9 +162,24 @@ export default function AdminPage() {
 
   if (forbidden) {
     return (
-      <div className="card border-down/40 bg-down/5 px-4 py-3 text-sm text-down">
-        Admin access required. Sign in as the owner or an admin (the first person
-        who ever signed in is the permanent owner).
+      <div className="mx-auto max-w-md space-y-3 py-10">
+        <div className="card px-4 py-5 text-center">
+          <ShieldCheck size={22} className="mx-auto mb-2 text-accent" />
+          <h1 className="text-sm font-bold text-ink">Admin sign-in required</h1>
+          <p className="mt-1 text-xs text-mute">
+            Taking you to the sign-in page. Connect the owner/admin wallet, or use
+            an emailed code if you are on a device without that wallet.
+          </p>
+          <a
+            href="/signin"
+            className="mt-3 inline-flex items-center justify-center rounded-card bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+          >
+            Continue to sign-in
+          </a>
+        </div>
+        <p className="text-center text-2xs text-faint">
+          The first person who ever signed in is the permanent owner.
+        </p>
       </div>
     );
   }

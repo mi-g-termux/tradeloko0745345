@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/session";
 import { CRON_JOBS, getCronStatus } from "@/lib/cron/runner";
-import { SERVER_ENV, appBaseUrl } from "@/lib/config";
+import { SERVER_ENV, baseUrlFromRequest } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -15,15 +15,18 @@ function cronExpression(everyMinutes: number): string {
   return hours <= 1 ? "0 * * * *" : `0 */${hours} * * *`;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     await requireAdmin();
   } catch {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
+  // Derive the base from the request the admin is making right now, so the
+  // copyable URLs always point at the domain they are actually browsing --
+  // Vercel, cPanel, Render or a custom domain -- with no env var required.
   // Trailing slash would produce //api/cron/... in the copyable URLs.
-  const base = (appBaseUrl() || "").replace(/\/+$/, "");
+  const base = (baseUrlFromRequest(req) || "").replace(/\/+$/, "");
 
   let jobs: Awaited<ReturnType<typeof getCronStatus>> = [];
   let statusError: string | null = null;

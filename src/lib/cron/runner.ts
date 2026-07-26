@@ -14,7 +14,7 @@
 //   3. returns a consistent JSON envelope,
 //   4. powers the "Automation health" panel in the admin UI.
 import { NextResponse } from "next/server";
-import { SERVER_ENV } from "../config";
+import { SERVER_ENV, rememberBaseUrl } from "../config";
 import { getServiceClient } from "../supabase";
 import type { CronRunInfo } from "../types";
 
@@ -184,6 +184,12 @@ export async function runCronJob(
       { status: 401 },
     );
   }
+
+  // Cron jobs are where Telegram/email links get built, but background work has
+  // no request of its own. The cron-job.org call itself carries the real host,
+  // so record it here and every outbound link becomes correct automatically --
+  // on Vercel, cPanel, Render or a custom domain, with no env var set.
+  rememberBaseUrl(req);
 
   const started = Date.now();
   try {
