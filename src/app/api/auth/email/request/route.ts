@@ -32,17 +32,6 @@ export async function POST(req: NextRequest) {
     return tooManyRequests(rl, "Too many sign-in code requests. Try again later.");
   }
 
-  // Shared-storage limit: 5 code requests per IP per 15 minutes.
-  const rl = await checkRateLimit({
-    bucket: "auth_email_request",
-    identifier: clientIp(req),
-    limit: 5,
-    windowSec: 900,
-  });
-  if (!rl.allowed) {
-    return tooManyRequests(rl, "Too many sign-in code requests. Try again later.");
-  }
-
   const body = await req.json().catch(() => ({}) as Record<string, unknown>);
   const email = String((body as { email?: unknown }).email ?? "");
 
