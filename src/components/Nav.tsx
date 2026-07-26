@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import AuthButton from "./AuthButton";
+import { AuthButton } from "./AuthButton";
 import { cx } from "./ui";
 import type { Branding } from "@/lib/types";
 
