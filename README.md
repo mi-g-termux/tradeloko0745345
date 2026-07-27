@@ -494,3 +494,33 @@ the `app_users` table.
 
 This is an obscurity layer on top of the real checks — the role check, the
 `ADMIN_LOGIN_EMAILS` allowlist and the rate limits — never a replacement for them.
+
+---
+
+## Wallet history sync (new cron - 10th entry)
+
+Deposits are ordinary Solana transfers. They never touch this app's code, so
+nothing could record them and the activity list stayed empty even though the
+balance was correct. `/api/cron/wallet-sync` fixes that by reading each
+custodial wallet's real signature list from the chain and recording anything
+it has not seen before.
+
+Add this to cron-job.org alongside the other nine:
+
+| Job | Path | Every |
+| --- | --- | --- |
+| Wallet history sync | `/api/cron/wallet-sync` | 5 minutes |
+
+Auth is the same as every other job: send `Authorization: Bearer <CRON_SECRET>`
+or append `?key=<CRON_SECRET>`. As with all of them, the endpoint DENIES every
+request when `CRON_SECRET` is unset.
+
+The wallet and portfolio pages also call `/api/wallet/sync` on load, so a
+deposit that landed seconds ago is visible immediately without waiting for the
+cron tick. The cron exists so history stays correct for users who are not
+currently looking at the page.
+
+This job is also self-healing for withdrawals: if a transfer is broadcast but
+the confirmation wait times out, the old code wrote no row at all and the
+amount did not count against the 24h withdrawal cap. The next sync finds the
+signature on-chain and records it, closing that gap.

@@ -27,7 +27,8 @@ export type CronJobName =
   | "signal-updates"
   | "price-alerts"
   | "whale-signals"
-  | "user-autotrade";
+  | "user-autotrade"
+  | "wallet-sync";
 
 /**
  * The cadence each job is DESIGNED for. Used to build the copy-paste
@@ -103,6 +104,14 @@ export const CRON_JOBS: Array<{
     everyMinutes: 60,
     label: "Holder snapshots",
     description: "Records holder-concentration trend for safety analysis.",
+  },
+  {
+    job: "wallet-sync",
+    path: "/api/cron/wallet-sync",
+    everyMinutes: 5,
+    label: "Wallet history sync",
+    description:
+      "Reads each custodial wallet's real signature list from Solana and records anything missing. This is what makes incoming deposits appear in history automatically, and it back-fills withdrawals whose confirmation wait timed out.",
   },
 ];
 

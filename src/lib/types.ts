@@ -307,11 +307,36 @@ export interface PortfolioHolding {
   costSol: number | null;   // known cost basis from buy_orders, if any
 }
 
+/**
+ * Trading summary for a wallet, computed from this app's own records.
+ *
+ * Only meaningful for the signed-in user's own wallet: it is derived from
+ * buy_orders and wallet_transactions, which exist only for activity that passed
+ * through this app. Viewing a stranger's address returns null rather than
+ * inventing numbers that cannot be known from the chain alone.
+ */
+export interface PortfolioStats {
+  investedSol: number;
+  soldSol: number;
+  realisedPnlSol: number;
+  tradeCount: number;
+  winCount: number;
+  lossCount: number;
+  /** 0-100, or null when nothing has been closed yet. */
+  winRate: number | null;
+  /** Mean holding time in hours across closed positions, or null. */
+  avgHoldHours: number | null;
+  lastTradedAt: string | null;
+  depositedSol: number;
+  withdrawnSol: number;
+}
+
 export interface PortfolioResult {
   wallet: string;
   solBalance: number;
   holdings: PortfolioHolding[];
   totalValueUsd: number;
+  stats: PortfolioStats | null;
 }
 
 /** One capability shown on the welcome / features screen. */

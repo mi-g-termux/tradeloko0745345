@@ -78,9 +78,10 @@ export default function MarketStrip({
       {/* ── Category / meta ticker ── */}
       {buckets.length > 0 ? (
         <div className="scroll-x flex items-center gap-2 pb-1">
-          <span className="shrink-0 pr-1 text-2xs font-semibold uppercase tracking-wider text-faint">
-            Metas
-          </span>
+          {/* There used to be a bare "Metas" caption sitting inside this row. It
+              looked exactly like the chips beside it but was not clickable, so
+              it read as a broken button. The row is self-explanatory without a
+              label, so the label is gone rather than restyled. */}
           <Chip active={activeCategory === null} onClick={() => onCategory(null)}>
             All
           </Chip>

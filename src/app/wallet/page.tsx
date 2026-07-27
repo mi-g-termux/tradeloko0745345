@@ -61,10 +61,20 @@ export default function WalletPage() {
 
   const [withdrawTo, setWithdrawTo] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState("");
+  // Set when the API answers 202: the transfer is held until the emailed code
+  // is supplied. Without this the button silently did nothing forever.
+  const [withdrawCode, setWithdrawCode] = useState("");
+  const [needCode, setNeedCode] = useState(false);
   const [buyToken, setBuyToken] = useState("");
   const [buyAmt, setBuyAmt] = useState("");
 
   const load = useCallback(async () => {
+    // Reconcile with the chain BEFORE reading history, so a deposit that landed
+    // moments ago is already in the list. Deposits never touch our code - they
+    // are ordinary Solana transfers - so without this they would never appear.
+    // Failure here is non-fatal: we still show whatever history we already have.
+    await fetch("/api/wallet/sync", { method: "POST" }).catch(() => null);
+
     const [o, s, t] = await Promise.all([
       fetch("/api/wallet").then((r) => r.json()).catch(() => null),
       fetch("/api/wallet/settings").then((r) => r.json()).catch(() => null),
@@ -114,19 +124,57 @@ export default function WalletPage() {
   async function doWithdraw() {
     setBusy("withdraw");
     setMsg(null);
-    const r = await fetch("/api/wallet/withdraw", {
+
+    const res = await fetch("/api/wallet/withdraw", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ to: withdrawTo, amountSol: Number(withdrawAmt) }),
-    }).then((x) => x.json());
+      body: JSON.stringify({
+        to: withdrawTo,
+        amountSol: Number(withdrawAmt),
+        // Only sent once the user has been asked for one.
+        ...(needCode && withdrawCode ? { code: withdrawCode.trim() } : {}),
+      }),
+    }).catch(() => null);
+
     setBusy(null);
-    if (r.error) setMsg({ ok: false, text: r.error });
-    else {
-      setMsg({ ok: true, text: `Withdrawal sent. Tx ${String(r.signature).slice(0, 8)}...` });
-      setWithdrawTo("");
-      setWithdrawAmt("");
-      load();
+
+    if (!res) {
+      setMsg({ ok: false, text: "Network error. The withdrawal was NOT sent." });
+      return;
     }
+
+    const r = await res.json().catch(() => ({}) as Record<string, unknown>);
+
+    // 202 = accepted but held pending the emailed code. This is NOT success:
+    // treating it as success is what previously reported "Withdrawal sent. Tx
+    // undefined..." for a transfer that never happened, with no way to finish it.
+    if (res.status === 202 || r.confirmationRequired) {
+      setNeedCode(true);
+      setWithdrawCode("");
+      setMsg({
+        ok: true,
+        text:
+          typeof r.message === "string"
+            ? r.message
+            : "We emailed a confirmation code. Enter it below to complete this withdrawal.",
+      });
+      return;
+    }
+
+    if (!res.ok || r.error) {
+      setMsg({ ok: false, text: String(r.error ?? "Withdrawal failed.") });
+      return;
+    }
+
+    setMsg({
+      ok: true,
+      text: `Withdrawal sent. Tx ${String(r.signature ?? "").slice(0, 8)}...`,
+    });
+    setWithdrawTo("");
+    setWithdrawAmt("");
+    setWithdrawCode("");
+    setNeedCode(false);
+    load();
   }
 
   async function doTrade(side: "buy" | "sell") {
@@ -388,13 +436,53 @@ export default function WalletPage() {
               />
               <button
                 onClick={doWithdraw}
-                disabled={busy === "withdraw"}
+                disabled={
+                  busy === "withdraw" || (needCode && withdrawCode.trim().length === 0)
+                }
                 className="flex items-center gap-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded-lg px-4 py-2 text-sm font-medium"
               >
                 {busy === "withdraw" ? <Loader2 className="animate-spin" size={15} /> : <ArrowUpFromLine size={15} />}
-                Withdraw
+                {needCode ? "Confirm" : "Withdraw"}
               </button>
             </div>
+
+            {/* Second factor. Shown only after the API asks for it (HTTP 202).
+                The code is bound to this exact amount and destination server
+                side, so changing either above invalidates it. */}
+            {needCode ? (
+              <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+                <p className="text-xs font-medium text-amber-300">
+                  Email confirmation required
+                </p>
+                <p className="mt-1 text-2xs text-mute">
+                  Enter the 6-digit code we sent you. It expires shortly and works
+                  only for this exact amount and destination.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={withdrawCode}
+                    onChange={(e) =>
+                      setWithdrawCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                    }
+                    placeholder="123456"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    className="flex-1 bg-base border border-edge rounded-lg px-3 py-2 text-sm font-mono tracking-widest"
+                  />
+                  <button
+                    onClick={() => {
+                      setNeedCode(false);
+                      setWithdrawCode("");
+                      setMsg(null);
+                    }}
+                    className="rounded-lg border border-edge px-3 py-2 text-xs text-mute hover:text-ink"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </Card>
 
           {/* Backup / export private key */}
