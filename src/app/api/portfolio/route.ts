@@ -15,25 +15,42 @@ export async function GET(req: Request) {
   const requested = searchParams.get("wallet")?.trim() || "";
   const user = await getCurrentUser();
 
-  // Prefer the custodial wallet when the user asked for their own view, so the
-  // page shows the balance they actually trade from.
-  const ownWallet =
-    (user ? await getWalletPublicKey(user.id).catch(() => null) : null) ??
-    user?.walletAddress ??
-    "";
+  // "My wallet" means the CUSTODIAL wallet - the one this app can actually
+  // trade from - and nothing else.
+  //
+  // This used to fall back to user.walletAddress, the Phantom address someone
+  // signed in with. That was wrong. A connected wallet is an IDENTITY, not an
+  // account: we cannot sign for it, we hold no cost basis for it, and showing
+  // it under "My Wallet" invited people to deposit into an address the trading
+  // engine never touches. Two different wallets wearing the same label is a
+  // guaranteed support nightmare, so the fallback is gone.
+  const ownWallet = user
+    ? await getWalletPublicKey(user.id).catch(() => null)
+    : null;
 
-  const wallet = requested || ownWallet;
-  if (!wallet) {
-    return NextResponse.json({ error: "Provide ?wallet= or sign in with a wallet." }, { status: 400 });
+  // No address to show is a STATE, not an error. Returning HTTP 400 pushed a
+  // developer string ("Provide ?wallet= ...") into the UI as red error text.
+  if (!requested) {
+    if (!user) {
+      return NextResponse.json({ portfolio: null, state: "signed_out" });
+    }
+    if (!ownWallet) {
+      return NextResponse.json({ portfolio: null, state: "no_wallet" });
+    }
   }
+
+  const wallet = requested || (ownWallet as string);
 
   // Stats come from our own records, so they are only attached when the caller
   // is looking at their own wallet. Never expose one user's history to another.
-  const ownerId = user && wallet === ownWallet ? user.id : undefined;
+  const ownerId = user && ownWallet && wallet === ownWallet ? user.id : undefined;
 
   try {
     const portfolio = await getPortfolio(wallet, ownerId);
-    return NextResponse.json({ portfolio });
+    return NextResponse.json({
+      portfolio,
+      state: ownerId ? "ok" : "foreign",
+    });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

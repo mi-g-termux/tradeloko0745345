@@ -11,7 +11,14 @@
 // the chain can tell us balances but not intent, so those tiles render "N/A"
 // instead of a fabricated number.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Search, Wallet } from "lucide-react";
+import {
+  AlertCircle,
+  Eye,
+  Loader2,
+  RefreshCw,
+  Search,
+  Wallet,
+} from "lucide-react";
 import { Badge, SegmentedControl, StatTile, Tabs, TextInput } from "@/components/ui";
 
 interface Holding {
@@ -110,6 +117,10 @@ export default function PortfolioPage() {
   const [range, setRange] = useState<RangeId>("all");
   const [q, setQ] = useState("");
   const [hideDust, setHideDust] = useState(true);
+  // "no wallet yet" and "signed out" are STATES, not failures. Keeping them out
+  // of `err` is what stops a developer string rendering as red error text.
+  const [state, setState] = useState<string>("ok");
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(async (address?: string) => {
     setLoading(true);
@@ -131,6 +142,7 @@ export default function PortfolioPage() {
               .catch(() => ({ transactions: [] })),
       ]);
       if (p.error) throw new Error(p.error);
+      setState(String(p.state ?? "ok"));
       setData(p.portfolio);
       setTxs(t?.transactions ?? []);
     } catch (e) {
@@ -145,6 +157,21 @@ export default function PortfolioPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** Generate the in-app trading wallet, then show it straight away. */
+  async function createWallet() {
+    setCreating(true);
+    setErr(null);
+    const r = await fetch("/api/wallet", { method: "POST" })
+      .then((x) => x.json())
+      .catch(() => ({ error: "Network error." }));
+    setCreating(false);
+    if (r?.error) {
+      setErr(String(r.error));
+      return;
+    }
+    await load();
+  }
 
   const cutoff = useMemo(() => {
     const days = RANGE_DAYS[range as RangeId];
@@ -189,6 +216,113 @@ export default function PortfolioPage() {
   const st = data?.stats ?? null;
   const remaining = data ? data.totalValueUsd : null;
 
+  // ── Onboarding ────────────────────────────────────────────────────────────
+  // Shown INSTEAD of the dashboard when there is nothing to show yet. A grid of
+  // "N/A" tiles over a red developer string is not an empty state; it reads as a
+  // broken page. Tell the person what exists and give them the one button that
+  // moves them forward.
+  const lookingUpSomeoneElse = wallet.trim().length > 0;
+
+  if (!lookingUpSomeoneElse && (state === "signed_out" || state === "no_wallet")) {
+    const signedOut = state === "signed_out";
+    return (
+      <main className="mx-auto max-w-3xl px-3 py-10 sm:px-4">
+        <div className="card p-6 text-center sm:p-10">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-edge bg-panel2">
+            <Wallet size={22} className="text-accent" />
+          </div>
+
+          <h1 className="mt-4 text-lg font-semibold text-ink">
+            {signedOut ? "Sign in to see your portfolio" : "Create your trading wallet"}
+          </h1>
+
+          <p className="mx-auto mt-2 max-w-lg text-sm text-mute">
+            {signedOut
+              ? "Your portfolio tracks the in-app trading wallet on this site. Sign in first, then create the wallet in one click."
+              : "MemePump trades from its own in-app wallet, not from the wallet you signed in with. Create it once, deposit SOL into it, and every buy, sell, deposit and withdrawal shows up here automatically."}
+          </p>
+
+          {/* The distinction that causes the most confusion, stated plainly. */}
+          <div className="mx-auto mt-5 max-w-lg space-y-2 text-left">
+            <div className="rounded-card border border-edge bg-panel2/60 p-3">
+              <p className="text-xs font-medium text-ink">
+                Your connected wallet (Phantom)
+              </p>
+              <p className="mt-0.5 text-2xs text-mute">
+                Used only to prove who you are. This site cannot see its history
+                or sign anything with it, so it is never shown here.
+              </p>
+            </div>
+            <div className="rounded-card border border-accent/40 bg-accent/5 p-3">
+              <p className="text-xs font-medium text-ink">
+                Your in-app trading wallet
+              </p>
+              <p className="mt-0.5 text-2xs text-mute">
+                The account you deposit into and trade from. You can export its
+                private key at any time and withdraw whenever you want.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            {signedOut ? (
+              <a
+                href="/wallet"
+                className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                Sign in
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={createWallet}
+                disabled={creating}
+                className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {creating ? <Loader2 size={15} className="animate-spin" /> : null}
+                {creating ? "Creating..." : "Create trading wallet"}
+              </button>
+            )}
+            <a
+              href="/wallet"
+              className="rounded-md border border-edge px-4 py-2 text-sm text-mute hover:text-ink"
+            >
+              Go to Wallet
+            </a>
+          </div>
+
+          {err ? (
+            <p className="mt-4 text-xs text-down">{err}</p>
+          ) : null}
+
+          <div className="mt-8 border-t border-edge pt-5">
+            <p className="text-2xs uppercase tracking-wide text-faint">
+              Just browsing?
+            </p>
+            <div className="mx-auto mt-2 flex max-w-md items-center gap-2">
+              <TextInput
+                value={wallet}
+                onChange={(e) => setWallet(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") load(wallet);
+                }}
+                placeholder="Look up any Solana wallet address..."
+                className="font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => load(wallet)}
+                className="shrink-0 rounded-md border border-edge px-3 py-2 text-xs text-mute hover:text-ink"
+              >
+                Look up
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-6">
       <div className="card p-3 sm:p-4">
@@ -198,8 +332,14 @@ export default function PortfolioPage() {
             <h1 className="text-base font-semibold text-ink">
               {data?.wallet ? short(data.wallet, 5) : "My Wallet"}
             </h1>
-            <Badge tone="accent">{sol(data?.solBalance ?? null, 4)}</Badge>
-            <span className="text-xs text-mute">{usd(remaining)}</span>
+            {data ? (
+              <>
+                <Badge tone="accent">{sol(data.solBalance, 4)}</Badge>
+                <span className="text-xs text-mute">{usd(remaining)}</span>
+              </>
+            ) : (
+              <span className="text-xs text-faint">loading...</span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -306,9 +446,27 @@ export default function PortfolioPage() {
         ) : null}
       </div>
 
+      {/* Viewing a stranger's address is read-only by definition: we hold no
+          records for it, so the trading tiles stay N/A. Say so, rather than
+          letting the user assume the numbers are broken. */}
+      {state === "foreign" ? (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-edge bg-panel2/60 px-3 py-2">
+          <Eye size={14} className="mt-0.5 shrink-0 text-mute" />
+          <p className="text-xs text-mute">
+            Read-only view of someone else&apos;s wallet. Balances are live from
+            the chain, but invested, winrate and hold time need trade records we
+            only have for your own wallet.
+          </p>
+        </div>
+      ) : null}
+
       {err ? (
-        <div className="mt-3 rounded-md border border-down/40 bg-down/10 px-3 py-2 text-xs text-down">
-          {err}
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-down/40 bg-down/10 px-3 py-2">
+          <AlertCircle size={14} className="mt-0.5 shrink-0 text-down" />
+          <div className="text-xs">
+            <p className="font-medium text-down">Could not load that wallet</p>
+            <p className="mt-0.5 text-mute">{err}</p>
+          </div>
         </div>
       ) : null}
 
