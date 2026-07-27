@@ -153,6 +153,14 @@ Email (needed for admin email login + alerts):
 
 Gmail requires an App Password (Google Account -> Security -> 2-Step
 Verification -> App passwords). Port 587 = `SMTP_SECURE=false`, port 465 = `true`.
+
+Admin login hardening (strongly recommended - see section J2):
+
+    ADMIN_LOGIN_PATH=k7x-control-9f2
+    ADMIN_LOGIN_EMAILS=you@gmail.com
+
+`ADMIN_LOGIN_PATH` moves the login page off the guessable `/signin`.
+`ADMIN_LOGIN_EMAILS` is a hard allowlist of who may even request a code.
 These can also be set in the admin panel, which overrides env.
 
 OPTIONAL feature keys (each unlocks one feature; app works without them):
@@ -366,6 +374,47 @@ Set this up BEFORE you need it, because it has three preconditions:
 2. Your account must already hold `admin` or `owner`.
 3. SMTP must work - send the test email from the admin panel once to confirm.
 
+### J2. Choosing your own admin login URL (and locking the form down)
+
+By default the login form is at `/signin`. That name is guessable, so anyone can
+load it and type random addresses. Two env vars fix that.
+
+**1. Move the door.** Set `ADMIN_LOGIN_PATH` to anything unguessable:
+
+    ADMIN_LOGIN_PATH=k7x-control-9f2
+
+After redeploying:
+
+| URL | Result |
+|---|---|
+| `https://your-site.com/k7x-control-9f2` | the login form |
+| `https://your-site.com/signin` | **404 Not found** |
+| `/admin` (no session) | says a private URL exists, but never reveals it |
+
+Rules: no slashes or spaces, case-insensitive, trailing slashes cannot bypass it.
+Change it any time by editing the var and redeploying - nothing in the database
+moves. Bookmark the URL, because the app will never show it to you.
+
+**2. Allowlist who may request a code.** This is the part that stops strangers
+submitting random addresses:
+
+    ADMIN_LOGIN_EMAILS=you@gmail.com,partner@company.com
+
+Any address not on the list is rejected before a single database query or email
+is sent. Leave it unset and the form still only ever emails real admin accounts,
+but it will accept any typed address for processing.
+
+**Why the form does not say "wrong email".** It deliberately answers identically
+for a real admin address and a random one. A form that says "no such admin" is an
+admin-discovery tool - an attacker submits a list of addresses and learns which
+one owns your site, then targets that inbox. Instead the code screen explains the
+three reasons nothing arrived (typo, spam folder, SMTP not working). Real errors
+(invalid format, rate limited, SMTP failure) *are* still reported clearly.
+
+**Defence in depth.** Knowing the URL is not access. An attacker still needs an
+account that already exists AND already holds admin/owner, to be on the
+allowlist, and to read the 6-digit code from your inbox within 10 minutes.
+
 Guardrails: code expires in 10 minutes, 5 wrong attempts burns it, max 5 codes
 per hour, and requests are rate limited (5 per 15 min). The response is identical
 whether or not the email exists, so nobody can enumerate admin addresses.
@@ -488,3 +537,303 @@ Build locally, commit `.next`, or ask support to raise the memory limit. Use
 - [ ] Withdrawal caps reviewed
 - [ ] Custom domain + HTTPS working
 - [ ] `NEXT_PUBLIC_APP_URL` set to the final domain, then redeployed
+
+
+---
+
+## Public site URL, Telegram links, and RPC (read this before going live)
+
+### Why the Telegram "Full analysis" button pointed at a strange URL
+
+On Vercel every single deployment gets its own permanent hostname, like
+`memepumps-f54lx2t2g-yourname.vercel.app`, in addition to your real domain.
+When no canonical URL was configured, the app fell back to whichever hostname
+the cron request happened to arrive on, which is one of those per-deployment
+hostnames. The link worked, but it pointed at one frozen old build instead of
+the site your users actually visit.
+
+### The fix: set it once in the admin panel
+
+**Admin -> Providers -> Public site URL**
+
+Enter your real origin, with no trailing slash:
+
+- Vercel: `https://memepumps.vercel.app`
+- Custom domain: `https://yourdomain.com`
+- cPanel: `https://yourdomain.com`
+
+Every Telegram button, buy link and email link uses this value first. It is
+stored in the database, so **moving to cPanel or a custom domain needs no code
+change and no redeploy** - you edit this one field and the next signal already
+carries the correct domain.
+
+If you leave it empty the app still falls back to the observed request host, so
+nothing breaks; it just is not guaranteed to be the domain you want.
+
+### Top holders showing "429 Too Many Requests"
+
+**Cause.** Without an RPC key the app uses `api.mainnet-beta.solana.com`, the
+free public Solana endpoint. It is rate-limited **per IP address**, and on a
+serverless host that IP is shared with every other project on the same machine.
+So the quota can already be exhausted by strangers before your first request,
+which is why the Top holders tab failed while the rest of the page loaded (the
+price, liquidity and volume numbers come from DexScreener, not from RPC).
+
+**Best free fix: Helius.** Free tier, no card required, and it gives you a
+dedicated quota instead of a shared one.
+
+1. Sign up at <https://helius.dev> and copy the API key.
+2. Paste it in **Admin -> Providers -> Helius API key**.
+
+That alone resolves the 429. Other options, in order of preference:
+
+| Provider | Free tier | Notes |
+| --- | --- | --- |
+| Helius | Yes | Best free option; also powers whales/launches |
+| QuickNode | Limited free | Reliable, good for a backup endpoint |
+| Triton / Alchemy | Limited free | Fine as a secondary |
+| Public mainnet-beta | Unmetered but shared | Last-resort fallback only |
+
+The app now also does this automatically:
+
+- **Failover order:** Helius key -> primary RPC URL -> backup RPC URL -> public.
+- A 429 or 5xx retries once, then moves to the next endpoint.
+- Holder results are cached for 60 seconds, so repeat views cost no quota.
+
+Set **Backup Solana RPC URL** in Admin -> Providers for a second endpoint.
+
+### AI council (multi-model signals)
+
+Add any combination of Gemini, OpenAI, Anthropic, Groq and DeepSeek keys in
+**Admin -> Providers**, then switch on **AI council** in Admin -> Automation.
+
+All configured models are asked the *same* question in parallel and their
+answers are compared:
+
+- Unanimous agreement keeps the full confidence.
+- A split lowers it, and the signal states which models disagreed.
+
+With one key it behaves exactly like before. Groq has a usable free tier if you
+want a second opinion at no cost.
+
+
+---
+
+## Signal analysis engine (v16)
+
+Every signal is now built from a **mandatory full 24-hour scan** of the token,
+followed by four independent analysis layers. Nothing is published until all of
+them have run.
+
+### Step 1 - Full 24-hour scan (`src/lib/analysis/window24h.ts`)
+
+The engine reconstructs the entire trailing 24 hours bar by bar at **5-minute
+resolution** (up to 288 bars). Tokens younger than ~4 hours automatically fall
+back to 1-minute bars so a 90-minute-old token still yields 90 usable bars
+instead of 18.
+
+This fixed 24h window is why signals are now **reproducible and regularly
+spaced**. Previously the engine analysed whatever candle window happened to be
+cached, so the same token could be judged on 20 minutes of tape on one run and
+6 hours on the next - which is exactly why signals felt random and arrived at
+irregular intervals.
+
+From the session it derives: the true 24h high/low, where price sits inside
+that range, session VWAP (the average price everyone actually paid), whether
+volume is expanding or dying (second half vs first half), the green/red bar
+split, and the volume-weighted buy/sell imbalance.
+
+### Step 2 - Market structure (`src/lib/analysis/structure.ts`)
+
+| Tool | What it answers |
+| --- | --- |
+| **ZigZag swings** | Where the real swing highs and lows are, ignoring noise |
+| **HH / HL / LH / LL** | Is this market genuinely trending or just moving? |
+| **BOS** (break of structure) | The trend extended through a prior swing |
+| **CHoCH** (change of character) | The first break *against* the trend - early reversal warning |
+| **SuperTrend** (ATR bands) | The trend filter; a fresh flip is the actionable event |
+| **Key levels** | Swing pivots clustered into support/resistance, scored by touch count |
+| **Liquidity zones** | Equal highs/lows where stop orders pile up before a sweep |
+| **Fibonacci** | The 38.2-78.6% "golden pocket" pullback entry band |
+
+The ZigZag depth is **auto-scaled from each token's own realised volatility**,
+so the same code draws sane swings on a coin moving 0.5% a bar and one moving
+40% a bar.
+
+### Step 3 - Chart patterns (`src/lib/analysis/chartPatterns.ts`)
+
+Detected from real ZigZag pivots, not curve-fitted:
+
+- Head & Shoulders and Inverse Head & Shoulders (with neckline + measured target)
+- Ascending / Descending / Symmetrical Triangles
+- Rising Wedge (bearish) and Falling Wedge (bullish)
+- Bull Flag and Bear Flag (pole height projected, volume-dry-up checked)
+- Double / Triple Top and Bottom (neckline-measured targets)
+- Cup & Handle
+- Rectangle / channel ranges, with price position inside the range
+
+Every pattern reports its **trigger level, measured target and invalidation**.
+A pattern that cannot produce all three is not emitted, because it is not
+tradeable. Head & Shoulders suppresses a Double Top built from the same
+shoulders, so one swing is never counted twice.
+
+### Step 4 - Candlestick formations (`src/lib/analysis/candlesticks.ts`)
+
+Single-, two- and three-bar formations with explicit geometry rules:
+
+- **Single:** Hammer, Hanging Man, Shooting Star, Inverted Hammer, Marubozu,
+  Spinning Top, Doji, Dragonfly Doji, Gravestone Doji, Long-legged Doji
+- **Two-bar:** Bullish/Bearish Engulfing, Bullish/Bearish Harami, Piercing Line,
+  Dark Cloud Cover, Tweezer Top, Tweezer Bottom
+- **Three-bar:** Morning Star, Evening Star, Three White Soldiers,
+  Three Black Crows, Three Inside Up, Three Inside Down
+
+Two rules keep this honest:
+
+1. **Context is required.** A hammer is only a hammer *after a decline*; the
+   identical shape after a rally is a hanging man and means the opposite.
+   Formations without the correct preceding trend are discarded outright.
+2. **Size is relative.** Every threshold is measured against the average real
+   body of recent candles, so the rules behave identically on any volatility.
+
+Only one formation is reported per bar (strongest detector wins) and older bars
+decay in weight, so a reversal bar from five candles ago that never played out
+cannot carry the same weight as the current one.
+
+### Step 5 - Weighted scoring
+
+Every layer casts a **weighted vote** from -1 to +1. The final score is the
+weighted average of the evidence that actually exists, so a token with three
+inputs is never scored on the same scale as one with twelve.
+
+| Input | Weight |
+| --- | --- |
+| Market structure (HH/HL vs LH/LL) | 20 |
+| EMA trend stack (full 9/21/50) | 22 |
+| AI council | 18 |
+| Chart pattern (each) | 16 |
+| SuperTrend (fresh flip) | 16 |
+| 24h session read | up to 16 |
+| Safety score | 16-26 |
+| Break of structure | 14 |
+| MACD / order flow / 1h change | 14 |
+| Candlestick cluster | up to 14 |
+| RSI | 12 |
+| Change of character | 12 |
+| Fibonacci / key level proximity | 8 |
+
+Structure carries the heaviest single weight because it answers the only
+question that always matters: is this market making higher highs or lower lows?
+An oscillator disagreeing with structure is usually the oscillator being wrong.
+
+### Step 6 - Entries, stops and targets from real levels
+
+The stop is built **before** the target, which is the order a risk-managed
+trade is actually constructed in.
+
+- **Stop** goes just below the nearest real level - last swing low, a clustered
+  multi-touch support, the 24h low, or session VWAP - never at an arbitrary
+  percentage. When both a structural stop and a 2-ATR volatility stop exist, the
+  tighter of the two is used.
+- **T1** is the next genuine level overhead, because that is where the move will
+  actually be tested. Only then does the engine project 2-ATR / 4-ATR extensions.
+- **Risk/reward is stated explicitly.** If R:R to the first target is below
+  1:1, the signal says so in plain language rather than hiding it.
+- If price sits in the **top 15% of the 24h range**, the signal explicitly warns
+  not to chase.
+
+### Honesty gates
+
+These exist to stop the engine sounding confident when it is not:
+
+- Under 20 candles of history, the call is **forced to neutral** with the reason
+  stated - no directional call is issued from price change alone.
+- Confidence is scaled by data quality, and again if fewer than a handful of
+  independent inputs existed.
+- A missing 24h session is reported and reduces confidence.
+- Low safety scores hard-cap any bullish score.
+- With the AI council enabled, model disagreement **lowers** confidence and the
+  split is stated on the signal.
+
+The full read is attached to every signal under `analysis` - structure summary,
+swing sequence, SuperTrend, Fibonacci, session stats, key levels, liquidity
+pools and detected candlestick formations.
+
+
+---
+
+## Complete pattern inventory (v17)
+
+The engine recognises **64 candlestick formations, 19 chart patterns and 7
+institutional liquidity setups**. Everything below is implemented with explicit
+geometry rules, not curve-fitting.
+
+### Candlestick formations - `candlesticks.ts` + `candlesticksAdvanced.ts`
+
+**Single bar:** Hammer, Hanging Man, Shooting Star, Inverted Hammer, Bullish and
+Bearish Marubozu, Spinning Top, Doji, Dragonfly Doji, Gravestone Doji,
+Long-legged Doji, High Wave, Bullish and Bearish Belt Hold.
+
+**Two bar:** Bullish and Bearish Engulfing, Bullish and Bearish Harami, Piercing
+Line, Dark Cloud Cover, Tweezer Top, Tweezer Bottom, On Neck, In Neck, Matching
+Low, Homing Pigeon, Bullish and Bearish Meeting Lines, Bullish and Bearish
+Separating Lines, Last Engulfing Top, Last Engulfing Bottom, Bullish and Bearish
+Kicking, Rising Window, Falling Window.
+
+**Three bar:** Morning Star, Evening Star, Three White Soldiers, Three Black
+Crows, Identical Three Crows, Three Inside Up, Three Inside Down, Three Outside
+Up, Three Outside Down, Bullish and Bearish Tri-Star, Bullish and Bearish
+Abandoned Baby, Upside Tasuki Gap, Downside Tasuki Gap, Upside Gap Two Crows,
+Two Crows, Two Black Gapping, Advance Block, Deliberation, Three Stars in the
+South, Unique Three River Bottom, Stick Sandwich, Side-by-Side White Lines.
+
+**Four and five bar:** Bullish and Bearish Three Line Strike, Rising Three
+Methods, Falling Three Methods, Mat Hold, Ladder Bottom.
+
+### Chart patterns - `chartPatterns.ts` + `technical.ts`
+
+Head & Shoulders, Inverse Head & Shoulders, Ascending Triangle, Descending
+Triangle, Symmetrical Triangle, Rising Wedge, Falling Wedge, Bull Flag, Bear
+Flag, Bull Pennant, Bear Pennant, Double Top, Double Bottom, Triple Top, Triple
+Bottom, Rounding Top, Rounding Bottom, Cup & Handle, Rectangle Range, Ascending
+Channel, Descending Channel, Resistance Breakout, Support Breakdown.
+
+### Institutional liquidity setups - `institutional.ts`
+
+This is the Quasimodo / smart-money layer. The unifying mechanic is that large
+orders cannot fill where there are no counterparties, so price is repeatedly
+driven into the obvious places retail stops rest and then reverses.
+
+| Setup | What it means |
+| --- | --- |
+| **Quasimodo (QM)** | A higher high that failed and then broke the prior low. The high was a liquidity grab; the left shoulder (QML) becomes the entry |
+| **QM Quick / Late Retest** | Price is back at the QML now - the actual trigger. Quick (within 6 bars) scores higher than late |
+| **Ignored QM** | Price closed straight through the level. Deliberately **flips the vote to the opposite side** - an ignored QM is a continuation signal, not a reason to keep fading |
+| **SR Flip** | Broken resistance retested as support (or the reverse). Trapped traders exiting at breakeven is what defends the level |
+| **Stop hunt** | A wick through a prior extreme that closes back inside. The highest-quality reversal tell in the family |
+| **Compression** | Ranges contracting into a level. Direction unknown, but the expansion that follows is violent |
+| **Three Drive** | Three pushes each smaller than the last - exhaustion, not strength |
+
+These cast one aggregated vote weighted up to **18**, just below raw market
+structure. A swept level is strong evidence, but it explains *why* price moved
+rather than the direction it is currently moving, so it does not override trend.
+
+### SuperTrend + ZigZag
+
+Both are implemented in `structure.ts` and used together as the trend filter: a
+ZigZag pivot confirms the swing, SuperTrend confirms the regime, and a fresh
+SuperTrend flip within two bars is treated as the actionable event.
+
+### Design rules enforced across all three layers
+
+1. **Context is required.** A hammer is only a hammer after a decline. Wrong
+   context means the formation is discarded, not down-weighted.
+2. **Size is relative.** Thresholds are measured against the token's own average
+   body, so identical code works on a 0.5%/bar and a 40%/bar token.
+3. **One formation per bar.** Longest formations are checked first, so a Morning
+   Star is never double-counted as a Doji.
+4. **A break requires a CLOSE** beyond the level. A wick through and back is a
+   liquidity sweep - the opposite of a break.
+5. **Recency decay.** Older formations lose weight automatically.
+6. **No target, no signal.** A pattern that cannot produce a measured target and
+   an invalidation level is not emitted, because it is not tradeable.

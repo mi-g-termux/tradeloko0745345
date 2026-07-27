@@ -3,7 +3,10 @@
 import { getServiceClient } from "../supabase";
 import { getAdminConfig } from "../adminConfig";
 import { getTokenSummary } from "../data/dexscreener";
-import { executeServerBuy, executeServerSellAll } from "./execute";
+// Routed through the ownership router: an order created by a user executes
+// from THAT user's custodial wallet under their own caps. Only orders with no
+// owner_id reach the server hot wallet.
+import { routedBuy, routedSellAll } from "./route";
 
 export interface KeeperResult {
   open: number; triggered: number; filled: number; failed: number; note?: string;
@@ -34,14 +37,14 @@ export async function runKeeper(): Promise<KeeperResult> {
     const sellReason =
       o.trigger_type === "price_above" ? "take-profit" : "stop-loss";
     const exec = o.side === "buy"
-      ? await executeServerBuy({
+      ? await routedBuy({
           tokenAddress: o.token_address,
           amountSol: Number(o.amount_sol ?? cfg.maxBuySol),
           source: "keeper",
           ownerId: o.owner_id ?? null,
           reason: "limit buy",
         })
-      : await executeServerSellAll(o.token_address, {
+      : await routedSellAll(o.token_address, {
           ownerId: o.owner_id ?? null,
           reason: sellReason,
           symbol: o.symbol ?? null,

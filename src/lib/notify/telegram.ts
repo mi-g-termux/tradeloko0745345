@@ -153,7 +153,16 @@ function tokenButtons(address: string, cfg: AdminConfig): InlineKeyboard {
   const row2: Array<Record<string, unknown>> = [
     { text: "📈 Chart", url: dexscreenerUrl(address) },
   ];
-  const base = publicBaseUrl();
+  // Link priority:
+  //   1. Admin panel -> "Public site URL". Explicit and survives a move to a
+  //      custom domain or cPanel with no redeploy.
+  //   2. Whatever origin real traffic last arrived on.
+  //
+  // Why this matters: on Vercel every deployment also gets a unique immutable
+  // hostname like memepumps-f54lx2t2g-....vercel.app. If that value is what got
+  // captured, buttons keep pointing at one frozen old deployment forever
+  // instead of the domain users actually visit.
+  const base = (cfg.siteUrl || "").trim().replace(/\/+$/, "") || publicBaseUrl();
   if (base) {
     const appUrl = base + "/token/" + address;
     if (isTelegramSafeUrl(appUrl)) {

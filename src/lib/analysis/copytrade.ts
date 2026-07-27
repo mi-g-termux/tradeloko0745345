@@ -4,7 +4,10 @@ import { getServiceClient } from "../supabase";
 import { getAdminConfig } from "../adminConfig";
 import { getWalletActivity } from "../data/whales";
 import { buildSignal } from "./signal";
-import { executeServerBuy } from "../trade/execute";
+// Routed through the ownership router: a copy rule on a wallet tracked by a
+// user spends THAT user's custodial wallet under their own caps. Only rules
+// with no owner_id reach the server hot wallet.
+import { routedBuy } from "../trade/route";
 
 export interface CopyResult {
   wallets: number; buysSeen: number; copied: number; skipped: number; note?: string;
@@ -38,7 +41,7 @@ export async function runCopyTrade(): Promise<CopyResult> {
         (sig.safetyScore != null && sig.safetyScore < cfg.requireSafeScore)) { skipped++; continue; }
       const amount = Math.min(cfg.maxBuySol, buy.amountSol ?? cfg.maxBuySol);
       const label = w.label ? w.label : `${w.address.slice(0, 4)}…${w.address.slice(-4)}`;
-      const exec = await executeServerBuy({
+      const exec = await routedBuy({
         tokenAddress: buy.tokenAddress, amountSol: amount, source: "copy",
         sourceRef: buy.signature, ownerId: w.owner_id ?? null,
         reason: `copy of ${label}`,

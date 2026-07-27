@@ -20,7 +20,7 @@
 //   so this endpoint cannot be used to discover who the admins are.
 import crypto from "crypto";
 import { getServiceClient } from "../supabase";
-import { publicBaseUrl, appBaseUrl } from "../config";
+import { publicBaseUrl, appBaseUrl, adminEmailAllowlist } from "../config";
 import { sendEmail } from "../notify/email";
 import { loginCodeEmail } from "../notify/emailTemplates";
 import { ROLE_RANK } from "./session";
@@ -61,6 +61,16 @@ export async function requestLoginCode(
   const email = rawEmail.trim().toLowerCase();
   if (!isEmail(email)) {
     return { ok: false, error: "Enter a valid email address.", status: 400 };
+  }
+
+  // Hard allowlist (ADMIN_LOGIN_EMAILS). When configured, a non-listed address
+  // is dropped here - before any database read and before any mail is sent - so
+  // a stranger typing random addresses cannot touch the database, cannot cause
+  // an email to be delivered, and cannot tell that they were filtered.
+  const allowlist = adminEmailAllowlist();
+  if (allowlist.length > 0 && !allowlist.includes(email)) {
+    console.warn("[email-login] address not on ADMIN_LOGIN_EMAILS allowlist:", email);
+    return { ok: true, sent: false };
   }
 
   const db = getServiceClient();

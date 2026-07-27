@@ -181,6 +181,54 @@ export interface TradeSignal {
   quality?: SignalQuality;
   /** Timeframe-labelled contributions that produced the score (for the UI). */
   factors?: Array<{ label: string; points: number; detail: string }>;
+  /**
+   * Full price-action read behind the call: market structure, the 24h session
+   * scan, key levels, liquidity pools and candlestick formations.
+   */
+  analysis?: {
+    /** Plain-English market structure summary. */
+    structure: string;
+    /** Liquidity-based institutional setups (Quasimodo, SR flip, stop hunt). */
+    institutional: Array<{
+      name: string;
+      side: "bullish" | "bearish";
+      level: number | null;
+      invalidation: number | null;
+      detail: string;
+    }>;
+    /** The swing sequence, e.g. "HH → HL → HH". */
+    sequence: string;
+    superTrend: string | null;
+    fib: string | null;
+    session: {
+      hoursCovered: number;
+      complete: boolean;
+      bars: number;
+      high: number;
+      low: number;
+      vwap: number;
+      /** 0 = at the 24h low, 1 = at the 24h high. */
+      rangePosition: number;
+      /** Second-half volume / first-half volume. */
+      volumeTrend: number;
+      /** Volume imbalance, -1 (all selling) .. 1 (all buying). */
+      pressure: number;
+      changePct: number;
+    } | null;
+    levels: Array<{
+      price: number;
+      kind: "support" | "resistance";
+      touches: number;
+      distancePct: number;
+    }>;
+    liquidity: Array<{ price: number; side: "buy-side" | "sell-side" }>;
+    candlesticks: Array<{
+      name: string;
+      direction: PatternDirection;
+      barsAgo: number;
+      detail: string;
+    }>;
+  };
 }
 
 // ── Branding (admin-managed logo / favicon / theme) ──

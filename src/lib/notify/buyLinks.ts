@@ -183,8 +183,11 @@ export function customUrl(
     .split("{ref}").join(cleanRef(ref));
 }
 
-function appTradeUrl(address: string): string | null {
-  const base = publicBaseUrl();
+// `siteUrl` is the admin-configured canonical origin. It wins over the observed
+// request origin so that a custom domain or cPanel host produces correct links
+// instead of a frozen per-deployment Vercel hostname.
+function appTradeUrl(address: string, siteUrl?: string): string | null {
+  const base = (siteUrl || "").trim().replace(/\/+$/, "") || publicBaseUrl();
   if (!base) return null;
   return base + "/token/" + cleanMint(address) + "?action=buy";
 }
@@ -197,7 +200,10 @@ function appTradeUrl(address: string): string | null {
  */
 export function buildBuyLinks(
   address: string,
-  cfg: Pick<AdminConfig, "tgBuyRoute" | "tgBuyRef" | "tgBuyTemplate">,
+  cfg: Pick<
+    AdminConfig,
+    "tgBuyRoute" | "tgBuyRef" | "tgBuyTemplate" | "siteUrl"
+  >,
 ): BuyLink[] {
   const ca = cleanMint(address);
   if (!ca) return [];
@@ -227,7 +233,7 @@ export function buildBuyLinks(
       push("\u{1F7E2} Buy now", customUrl(cfg.tgBuyTemplate || "", ca, ref), "web");
       break;
     case "app": {
-      const app = appTradeUrl(ca);
+      const app = appTradeUrl(ca, cfg.siteUrl);
       if (app) push("\u{1F7E2} Buy in app", app, "web");
       break;
     }

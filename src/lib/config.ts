@@ -26,6 +26,16 @@ export const SERVER_ENV = {
   walletMasterKey: process.env.WALLET_MASTER_KEY ?? "",
   // Secret that authorizes the scheduled scan endpoint (Vercel Cron).
   cronSecret: process.env.CRON_SECRET ?? "",
+  // ── Admin login door ──
+  // The URL segment that serves the admin email-code sign-in page. Default
+  // "signin" is public knowledge, so set this to something unguessable (e.g.
+  // "k7x-control-9f2") and the default /signin starts returning 404. This is an
+  // obscurity layer on top of the real checks, not a replacement for them.
+  adminLoginPath: process.env.ADMIN_LOGIN_PATH ?? "",
+  // Comma-separated list of addresses allowed to request a login code. When set,
+  // any other address is rejected before a single database or SMTP call happens,
+  // so strangers cannot probe the endpoint or use it to send mail at all.
+  adminLoginEmails: process.env.ADMIN_LOGIN_EMAILS ?? "",
   // Default public RPC works with no key but is heavily rate-limited.
   defaultRpcUrl:
     process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
@@ -33,6 +43,12 @@ export const SERVER_ENV = {
   birdeyeKeyEnv: process.env.BIRDEYE_API_KEY ?? "",
   xBearerEnv: process.env.X_BEARER_TOKEN ?? "",
   geminiKeyEnv: process.env.GEMINI_API_KEY ?? "",
+  // Additional AI providers. Any subset may be set; each one that is present
+  // becomes a member of the AI council that reviews signals.
+  openaiKeyEnv: process.env.OPENAI_API_KEY ?? "",
+  anthropicKeyEnv: process.env.ANTHROPIC_API_KEY ?? "",
+  groqKeyEnv: process.env.GROQ_API_KEY ?? "",
+  deepseekKeyEnv: process.env.DEEPSEEK_API_KEY ?? "",
   // --- Email (SMTP) env fallbacks; admin panel settings override these. ---
   appUrl:
     process.env.NEXT_PUBLIC_APP_URL ??
@@ -45,6 +61,32 @@ export const SERVER_ENV = {
   smtpFromEnv: process.env.SMTP_FROM ?? "",
   smtpSecureEnv: process.env.SMTP_SECURE ?? "",
 };
+
+/**
+ * Addresses permitted to request an admin login code, lowercased.
+ * Empty array = no allowlist configured, so eligibility is decided purely by
+ * the account's role in the database.
+ */
+export function adminEmailAllowlist(): string[] {
+  return SERVER_ENV.adminLoginEmails
+    .split(/[,;\s]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.includes("@"));
+}
+
+/**
+ * The URL segment of the admin sign-in page, with no slashes.
+ * Falls back to "signin" when ADMIN_LOGIN_PATH is unset.
+ */
+export function adminLoginSegment(): string {
+  const raw = SERVER_ENV.adminLoginPath.trim().replace(/^\/+|\/+$/g, "");
+  return raw || "signin";
+}
+
+/** True when the developer moved the login page off the default /signin. */
+export function adminLoginIsPrivate(): boolean {
+  return adminLoginSegment() !== "signin";
+}
 
 // Public API bases (all free / no key required).
 export const DEXSCREENER_BASE = "https://api.dexscreener.com";

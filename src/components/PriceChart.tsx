@@ -46,25 +46,76 @@ export default function PriceChart({
   const [mode, setMode] = useState<"price" | "mcap">("price");
   const [logScale, setLogScale] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
+  // Timestamp of the last successful candle refresh, used for the LIVE badge.
+  const [lastTick, setLastTick] = useState<number>(0);
   const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // How often to re-pull candles. Roughly a quarter of the candle width, so the
+  // forming candle visibly grows instead of jumping only when it closes. Capped
+  // so long timeframes do not hammer the API for no visual gain.
+  const POLL_MS: Record<FrameId, number> = {
+    "1m": 10_000,
+    "5m": 15_000,
+    "15m": 20_000,
+    "1h": 30_000,
+    "4h": 60_000,
+    "1d": 60_000,
+  };
 
   useEffect(() => {
     let alive = true;
+    // Only the FIRST load of a timeframe shows the spinner. Refreshes swap the
+    // data in silently, otherwise the chart would blink every few seconds.
+    let first = true;
     setLoading(true);
     setErr(null);
-    const f = FRAMES[frame];
-    fetch(`/api/candles/${address}?tf=${f.tf}&aggregate=${f.aggregate}&limit=200`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (!alive) return;
-        if (j.error && !(j.candles ?? []).length) setErr(j.error);
-        setCandles(j.candles ?? []);
-      })
-      .catch((e) => alive && setErr((e as Error).message))
-      .finally(() => alive && setLoading(false));
+    const f = FRAMES[frame as FrameId];
+    const url =
+      `/api/candles/${address}?tf=${f.tf}&aggregate=${f.aggregate}&limit=200`;
+
+    const load = () => {
+      // `cache: "no-store"` matters: without it the browser and any CDN in front
+      // of the route can serve a stale candle set forever, which is exactly what
+      // makes a chart look frozen.
+      fetch(url, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((j) => {
+          if (!alive) return;
+          const next = j.candles ?? [];
+          if (j.error && !next.length) setErr(j.error);
+          else if (next.length) setErr(null);
+          if (next.length || first) setCandles(next);
+          setLastTick(Date.now());
+        })
+        .catch((e) => {
+          // A failed refresh must not wipe a chart that is already drawn.
+          if (alive && first) setErr((e as Error).message);
+        })
+        .finally(() => {
+          if (!alive) return;
+          if (first) {
+            setLoading(false);
+            first = false;
+          }
+        });
+    };
+
+    load();
+    const id = setInterval(load, POLL_MS[frame as FrameId]);
+
+    // Browsers throttle timers in background tabs, so the chart can be stale on
+    // return. Refresh immediately when the tab becomes visible again.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       alive = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, frame]);
 
   // Market-cap mode simply rescales price by the current mcap/price ratio, i.e.
@@ -146,6 +197,29 @@ export default function PriceChart({
         >
           log
         </Button>
+        {/* LIVE badge: proves the chart is actually refreshing rather than
+            showing a frozen snapshot. Dims while a refresh is in flight. */}
+        <span
+          className={cx(
+            "flex items-center gap-1 rounded-card border px-1.5 py-0.5 text-2xs font-semibold",
+            lastTick
+              ? "border-up/40 text-up"
+              : "border-edge text-faint",
+          )}
+          title={
+            lastTick
+              ? "Updated " + new Date(lastTick).toLocaleTimeString()
+              : "Waiting for data"
+          }
+        >
+          <span
+            className={cx(
+              "h-1.5 w-1.5 rounded-full",
+              lastTick ? "animate-pulse bg-up" : "bg-faint",
+            )}
+          />
+          LIVE
+        </span>
         <div className="ml-auto flex items-center gap-3 text-2xs text-mute">
           {hovered ? (
             <>

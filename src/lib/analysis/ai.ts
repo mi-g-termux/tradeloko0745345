@@ -26,7 +26,9 @@ export function isAiAvailable(cfg: {
   return Boolean(cfg.aiEnabled && cfg.geminiApiKey);
 }
 
-function buildPrompt(
+// Exported so the multi-model council asks every provider exactly the same
+// question. Different prompts would make their answers incomparable.
+export function buildAnalystPrompt(
   token: TokenSummary,
   ind: Indicators,
   patterns: ChartPattern[],
@@ -51,7 +53,7 @@ function buildPrompt(
   ].join("\n");
 }
 
-function safeParse(text: string): Partial<AiVerdict> | null {
+export function parseVerdictJson(text: string): Partial<AiVerdict> | null {
   // Strip code fences if the model added them.
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -78,7 +80,7 @@ export async function analyzeWithAi(
     contents: [
       {
         role: "user",
-        parts: [{ text: buildPrompt(token, ind, patterns, safetyScore) }],
+        parts: [{ text: buildAnalystPrompt(token, ind, patterns, safetyScore) }],
       },
     ],
     generationConfig: { temperature: 0.4, maxOutputTokens: 512 },
@@ -92,7 +94,7 @@ export async function analyzeWithAi(
       timeoutMs: 20_000,
     });
     const text = res.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    const parsed = safeParse(text);
+    const parsed = parseVerdictJson(text);
     if (!parsed) return null;
     const lean =
       parsed.lean === "bullish" || parsed.lean === "bearish"

@@ -18,6 +18,11 @@ const SECRET_KEYS = [
   "birdeye_api_key",
   "x_bearer_token",
   "gemini_api_key",
+  // Additional AI providers. Masked on read like every other credential.
+  "openai_api_key",
+  "anthropic_api_key",
+  "groq_api_key",
+  "deepseek_api_key",
   "telegram_bot_token",
   "smtp_pass",
 ];
@@ -38,6 +43,11 @@ const PLAIN_KEYS = [
   "fee_percent",
   "fee_wallet",
   "rpc_url",
+  // Backup RPC (used when the primary returns 429/5xx) and the canonical public
+  // origin used for Telegram buttons and email links.
+  "rpc_url_backup",
+  "site_url",
+  "ai_council_enabled",
   "max_buy_sol",
   "daily_spend_cap_sol",
   "slippage_bps",

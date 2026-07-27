@@ -77,6 +77,17 @@ alter table admin_config add column if not exists min_signal_confidence integer 
 -- instead of a bare address (which most inboxes treat as spam).
 alter table admin_config add column if not exists smtp_from_name text;
 
+-- v2.5: canonical public URL, RPC failover, and multi-AI provider keys.
+-- site_url is what Telegram buttons and emails link to. Setting it here means
+-- moving to a custom domain or cPanel needs no redeploy.
+alter table admin_config add column if not exists site_url text;
+alter table admin_config add column if not exists rpc_url_backup text;
+alter table admin_config add column if not exists ai_council_enabled boolean default false;
+alter table admin_config add column if not exists openai_api_key text;
+alter table admin_config add column if not exists anthropic_api_key text;
+alter table admin_config add column if not exists groq_api_key text;
+alter table admin_config add column if not exists deepseek_api_key text;
+
 -- Wallets a user tracks for copy-trade / whale watching.
 create table if not exists tracked_wallets (
   id uuid primary key default gen_random_uuid(),

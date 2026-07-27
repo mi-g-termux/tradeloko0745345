@@ -1,11 +1,63 @@
 // Direct Solana JSON-RPC helpers using @solana/web3.js.
 // Free public RPC works but is rate-limited; set a paid RPC in admin config.
 import { Connection, PublicKey } from "@solana/web3.js";
-import { getRpcUrl } from "../adminConfig";
+import { getRpcUrl, getRpcUrls } from "../adminConfig";
 
 export async function getConnection(): Promise<Connection> {
   const url = await getRpcUrl();
   return new Connection(url, "confirmed");
+}
+
+/** True for errors worth retrying on a different endpoint. */
+function isRateLimitOrOutage(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err ?? "").toLowerCase();
+  return (
+    msg.includes("429") ||
+    msg.includes("too many requests") ||
+    msg.includes("rate limit") ||
+    msg.includes("503") ||
+    msg.includes("502") ||
+    msg.includes("504") ||
+    msg.includes("timeout") ||
+    msg.includes("fetch failed")
+  );
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Run an RPC read against each configured endpoint until one succeeds.
+ *
+ * The free endpoint api.mainnet-beta.solana.com allows only a few requests per
+ * second PER IP, and on a serverless host that IP is shared with every other
+ * tenant on the machine. That is why holder reads fail with
+ * "429 Too many requests for a specific RPC call" even when the site is idle:
+ * the quota was already spent by somebody else.
+ *
+ * Order comes from getRpcUrls(): Helius first (a dedicated key means a
+ * dedicated quota), then the admin's primary, then the backup, then public.
+ * A 429 also gets one short backoff retry before moving on, since these limits
+ * are per-second and usually clear immediately.
+ */
+export async function withRpcFailover<T>(
+  run: (conn: Connection) => Promise<T>,
+): Promise<T> {
+  const urls = await getRpcUrls();
+  let lastErr: unknown = new Error("No RPC endpoint configured.");
+
+  for (const url of urls) {
+    const conn = new Connection(url, "confirmed");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await run(conn);
+      } catch (err) {
+        lastErr = err;
+        if (!isRateLimitOrOutage(err)) throw err;
+        if (attempt === 0) await sleep(350);
+      }
+    }
+  }
+  throw lastErr;
 }
 
 export interface MintInfo {

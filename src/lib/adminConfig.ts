@@ -13,6 +13,13 @@ export interface AdminConfig {
   feeWallet: string;
   xFeedEnabled: boolean;
   aiEnabled: boolean;
+  /**
+   * When on, every configured AI provider analyses the trade independently and
+   * their verdicts are combined (an "AI council"). Disagreement lowers
+   * confidence instead of being hidden, which is the point: one model
+   * hallucinating a bullish case no longer moves a signal on its own.
+   */
+  aiCouncilEnabled: boolean;
   telegramAlertsEnabled: boolean;
   autoScanEnabled: boolean;
   copyTradeEnabled: boolean;
@@ -23,9 +30,26 @@ export interface AdminConfig {
   birdeyeApiKey: string;
   xBearerToken: string;
   geminiApiKey: string;
+  // ── Additional AI providers (all optional; any subset can be filled in) ──
+  openaiApiKey: string;
+  anthropicApiKey: string;
+  groqApiKey: string;
+  deepseekApiKey: string;
   telegramBotToken: string;
   telegramChatId: string;
   rpcUrl: string;
+  /**
+   * Fallback RPC used when the primary returns 429/5xx. Free public endpoints
+   * rate-limit aggressively, so one spare keeps holder reads working.
+   */
+  rpcUrlBackup: string;
+  /**
+   * Canonical public origin, e.g. https://memepumps.vercel.app or
+   * https://yourdomain.com. This is what Telegram buttons and emails link to.
+   * Set this when you move to a custom domain or cPanel; blank means "use
+   * whatever hostname the request arrived on".
+   */
+  siteUrl: string;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
@@ -71,6 +95,7 @@ const DEFAULTS: AdminConfig = {
   feeWallet: "",
   xFeedEnabled: false,
   aiEnabled: false,
+  aiCouncilEnabled: false,
   telegramAlertsEnabled: false,
   autoScanEnabled: false,
   copyTradeEnabled: false,
@@ -81,9 +106,15 @@ const DEFAULTS: AdminConfig = {
   birdeyeApiKey: "",
   xBearerToken: "",
   geminiApiKey: "",
+  openaiApiKey: "",
+  anthropicApiKey: "",
+  groqApiKey: "",
+  deepseekApiKey: "",
   telegramBotToken: "",
   telegramChatId: "",
   rpcUrl: "",
+  rpcUrlBackup: "",
+  siteUrl: "",
   smtpHost: "",
   smtpPort: 587,
   smtpUser: "",
@@ -142,6 +173,7 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.feeWallet = data.fee_wallet ?? "";
       merged.xFeedEnabled = Boolean(data.x_feed_enabled);
       merged.aiEnabled = Boolean(data.ai_enabled);
+      merged.aiCouncilEnabled = Boolean(data.ai_council_enabled);
       merged.telegramAlertsEnabled = Boolean(data.telegram_alerts_enabled);
       merged.autoScanEnabled = Boolean(data.auto_scan_enabled);
       merged.copyTradeEnabled = Boolean(data.copy_trade_enabled);
@@ -154,9 +186,15 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.birdeyeApiKey = data.birdeye_api_key ?? "";
       merged.xBearerToken = data.x_bearer_token ?? "";
       merged.geminiApiKey = data.gemini_api_key ?? "";
+      merged.openaiApiKey = data.openai_api_key ?? "";
+      merged.anthropicApiKey = data.anthropic_api_key ?? "";
+      merged.groqApiKey = data.groq_api_key ?? "";
+      merged.deepseekApiKey = data.deepseek_api_key ?? "";
       merged.telegramBotToken = data.telegram_bot_token ?? "";
       merged.telegramChatId = data.telegram_chat_id ?? "";
       merged.rpcUrl = data.rpc_url ?? "";
+      merged.rpcUrlBackup = data.rpc_url_backup ?? "";
+      merged.siteUrl = data.site_url ?? "";
       merged.smtpHost = data.smtp_host ?? "";
       if (data.smtp_port != null) {
         merged.smtpPort = Number(data.smtp_port);
@@ -203,6 +241,13 @@ export async function getAdminConfig(): Promise<AdminConfig> {
   if (!merged.birdeyeApiKey) merged.birdeyeApiKey = SERVER_ENV.birdeyeKeyEnv;
   if (!merged.xBearerToken) merged.xBearerToken = SERVER_ENV.xBearerEnv;
   if (!merged.geminiApiKey) merged.geminiApiKey = SERVER_ENV.geminiKeyEnv;
+  if (!merged.openaiApiKey) merged.openaiApiKey = SERVER_ENV.openaiKeyEnv;
+  if (!merged.anthropicApiKey)
+    merged.anthropicApiKey = SERVER_ENV.anthropicKeyEnv;
+  if (!merged.groqApiKey) merged.groqApiKey = SERVER_ENV.groqKeyEnv;
+  if (!merged.deepseekApiKey)
+    merged.deepseekApiKey = SERVER_ENV.deepseekKeyEnv;
+  if (!merged.siteUrl) merged.siteUrl = SERVER_ENV.appUrl;
   if (!merged.telegramBotToken)
     merged.telegramBotToken = SERVER_ENV.telegramBotToken;
   if (!merged.telegramChatId)
@@ -224,4 +269,36 @@ export async function getAdminConfig(): Promise<AdminConfig> {
 export async function getRpcUrl(): Promise<string> {
   const cfg = await getAdminConfig();
   return cfg.rpcUrl || SERVER_ENV.defaultRpcUrl;
+}
+
+/**
+ * Every RPC endpoint to try, in order, deduplicated.
+ *
+ * A Helius key is preferred over the free public endpoint because the public
+ * one allows only a handful of requests per second per IP - on a serverless
+ * host that IP is shared with every other tenant, which is exactly why holder
+ * reads return "429 Too many requests for a specific RPC call".
+ */
+export async function getRpcUrls(): Promise<string[]> {
+  const cfg = await getAdminConfig();
+  const list: string[] = [];
+  if (cfg.heliusApiKey) {
+    list.push(
+      "https://mainnet.helius-rpc.com/?api-key=" + cfg.heliusApiKey.trim(),
+    );
+  }
+  if (cfg.rpcUrl) list.push(cfg.rpcUrl.trim());
+  if (cfg.rpcUrlBackup) list.push(cfg.rpcUrlBackup.trim());
+  list.push(SERVER_ENV.defaultRpcUrl);
+  return Array.from(new Set(list.filter(Boolean)));
+}
+
+/**
+ * The canonical public origin for links we put in Telegram messages and
+ * emails. Admin config wins so that moving to a custom domain or cPanel is a
+ * one-field change with no redeploy.
+ */
+export async function getSiteUrl(): Promise<string> {
+  const cfg = await getAdminConfig();
+  return (cfg.siteUrl || "").trim().replace(/\/+$/, "");
 }

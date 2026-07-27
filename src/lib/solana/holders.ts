@@ -5,7 +5,7 @@
 //   wallet in this specific token, reconstructed from its Helius SWAP history.
 //   Requires a Helius key; without one it reports needsKey (never fake numbers).
 import { PublicKey } from "@solana/web3.js";
-import { getConnection, getMintInfo } from "./rpc";
+import { getConnection, getMintInfo, withRpcFailover } from "./rpc";
 import { getAdminConfig } from "../adminConfig";
 import { fetchJson } from "../http";
 import { WSOL_MINT } from "../config";
@@ -24,17 +24,45 @@ export interface TopHoldersResult {
   holders: TopHolder[];
 }
 
+// Holder lists barely move minute to minute, but every page view used to cost
+// two fresh RPC calls. On a shared free endpoint that is what pushes the quota
+// over the edge, so results are cached briefly and served to everyone.
+const holdersCache = new Map<
+  string,
+  { value: TopHoldersResult; expiry: number }
+>();
+const HOLDERS_TTL_MS = 60_000;
+
 /** Largest token accounts (up to 20) with owner + % of supply + USD value. */
 export async function getTopHolders(
   mint: string,
   priceUsd: number | null,
 ): Promise<TopHoldersResult | null> {
-  const conn = await getConnection();
+  const cached = holdersCache.get(mint);
+  if (cached && Date.now() < cached.expiry) {
+    // Re-price the cached amounts so USD values stay current even on a cache hit.
+    return {
+      ...cached.value,
+      holders: cached.value.holders.map((h) => ({
+        ...h,
+        valueUsd: priceUsd != null ? h.amount * priceUsd : null,
+      })),
+    };
+  }
+
   const mintInfo = await getMintInfo(mint);
   if (!mintInfo || mintInfo.supply <= 0) return null;
 
-  const largest = await conn.getTokenLargestAccounts(new PublicKey(mint));
-  const accounts = largest.value;
+  // Both reads go through the failover runner, so a 429 on one endpoint moves
+  // to the next instead of surfacing as an error in the UI.
+  // Explicit result types: the generic is inferred through a callback, so
+  // annotating here keeps the downstream .map() calls fully typed.
+  type LargestAccount = { address: PublicKey; uiAmount: number | null };
+  const accounts = await withRpcFailover<LargestAccount[]>((conn) =>
+    conn
+      .getTokenLargestAccounts(new PublicKey(mint))
+      .then((r) => r.value as unknown as LargestAccount[]),
+  );
   if (accounts.length === 0) {
     return { supply: mintInfo.supply, holderCount: 0, holders: [] };
   }
@@ -43,14 +71,13 @@ export async function getTopHolders(
   const pubkeys = accounts.map((a) => a.address);
   let owners: (string | null)[] = accounts.map(() => null);
   try {
-    const infos = await conn.getMultipleParsedAccounts(pubkeys);
-    owners = infos.value.map((acc) => {
-      if (acc && "parsed" in acc.data) {
-        const p = acc.data.parsed as { info?: { owner?: string } };
-        return p.info?.owner ?? null;
-      }
-      return null;
-    });
+    type ParsedAccounts = {
+      value: Array<{ data?: { parsed?: { info?: { owner?: string } } } } | null>;
+    };
+    const infos = (await withRpcFailover((conn) =>
+      conn.getMultipleParsedAccounts(pubkeys),
+    )) as unknown as ParsedAccounts;
+    owners = infos.value.map((acc) => acc?.data?.parsed?.info?.owner ?? null);
   } catch {
     // Owner resolution is best-effort; fall back to token-account addresses.
   }
@@ -66,7 +93,16 @@ export async function getTopHolders(
     };
   });
 
-  return { supply: mintInfo.supply, holderCount: holders.length, holders };
+  const result = {
+    supply: mintInfo.supply,
+    holderCount: holders.length,
+    holders,
+  };
+  holdersCache.set(mint, {
+    value: result,
+    expiry: Date.now() + HOLDERS_TTL_MS,
+  });
+  return result;
 }
 
 interface HeliusTx {

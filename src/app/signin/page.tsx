@@ -82,7 +82,7 @@ export default function SignInPage() {
         <div className="card p-4">
           <Field
             label="Admin email address"
-            hint="Must match the email saved on your account under Account & alerts."
+            hint="Must exactly match the address saved in Admin panel -> Email -> Admin login email."
           >
             <TextInput
               type="email"
@@ -109,6 +109,31 @@ export default function SignInPage() {
               {note}
             </div>
           ) : null}
+          {/*
+            We cannot say "that email is wrong" on the previous step: an endpoint
+            that distinguishes real admin addresses from random ones is an admin
+            enumeration tool, and attackers use exactly that to build target
+            lists. So the response is identical either way, and instead we tell
+            the user plainly how to interpret silence.
+          */}
+          <div className="mb-3 rounded-md border border-edge bg-base p-2.5">
+            <p className="text-2xs font-medium text-ink">No email after ~60 seconds?</p>
+            <ul className="mt-1 space-y-0.5 text-2xs text-mute">
+              <li>
+                • The address does not match the one saved on the admin account — check
+                for typos and try again.
+              </li>
+              <li>• Check your spam folder.</li>
+              <li>
+                • SMTP is not working on this site, so no code can be delivered. Sign in
+                with the admin wallet and send a test email from the admin panel.
+              </li>
+            </ul>
+            <p className="mt-1.5 text-2xs text-faint">
+              For security this page never confirms whether an address belongs to an
+              admin — otherwise anyone could use it to discover who your admins are.
+            </p>
+          </div>
           <Field label="6-digit code" hint="Expires in 10 minutes. Single use.">
             <TextInput
               inputMode="numeric"

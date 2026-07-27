@@ -44,12 +44,19 @@ interface Config {
   birdeye_api_key: string;
   x_bearer_token: string;
   gemini_api_key: string;
+  openai_api_key: string;
+  anthropic_api_key: string;
+  groq_api_key: string;
+  deepseek_api_key: string;
+  ai_council_enabled: boolean;
   telegram_bot_token: string;
   telegram_chat_id: string;
   tg_buy_route: string;
   tg_buy_ref: string;
   tg_buy_template: string;
   rpc_url: string;
+  rpc_url_backup: string;
+  site_url: string;
   max_buy_sol: number;
   daily_spend_cap_sol: number;
   slippage_bps: number;
@@ -121,13 +128,41 @@ export default function AdminPage() {
 
   // /admin is the ONLY entry point to admin email sign-in. The link is
   // deliberately absent from the public nav so regular visitors never see an
-  // option they cannot use (and so the admin door is not advertised). Anyone
-  // hitting /admin without an admin session is forwarded to the code form.
+  // option they cannot use (and so the admin door is not advertised).
+  //
+  // Where that door is depends on ADMIN_LOGIN_PATH. If the developer moved it to
+  // a private URL, we must NOT forward or link to it - that would hand the secret
+  // to anyone who loads /admin. In that case we only say a private URL exists.
   useEffect(() => {
     if (!forbidden) return;
-    const t = setTimeout(() => window.location.replace("/signin"), 900);
-    return () => clearTimeout(t);
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    (async () => {
+      try {
+        const r = await fetch("/api/auth/login-path", { cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
+        if (!alive) return;
+        if (j?.private) {
+          setLoginPrivate(true);
+          return; // never reveal or navigate to a private path
+        }
+        const dest: string = j?.path || "/signin";
+        setLoginPath(dest);
+        timer = setTimeout(() => window.location.replace(dest), 900);
+      } catch {
+        if (alive) setLoginPrivate(true);
+      }
+    })();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
   }, [forbidden]);
+
+  // Resolved from /api/auth/login-path. Defaults are only used when the site is
+  // running on the public /signin door.
+  const [loginPath, setLoginPath] = useState("/signin");
+  const [loginPrivate, setLoginPrivate] = useState(false);
 
   const dirtyKeys = useMemo(() => {
     if (!cfg || !saved) return [] as string[];
@@ -167,16 +202,26 @@ export default function AdminPage() {
         <div className="card px-4 py-5 text-center">
           <ShieldCheck size={22} className="mx-auto mb-2 text-accent" />
           <h1 className="text-sm font-bold text-ink">Admin sign-in required</h1>
-          <p className="mt-1 text-xs text-mute">
-            Taking you to the sign-in page. Connect the owner/admin wallet, or use
-            an emailed code if you are on a device without that wallet.
-          </p>
-          <a
-            href="/signin"
-            className="mt-3 inline-flex items-center justify-center rounded-card bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
-          >
-            Continue to sign-in
-          </a>
+          {loginPrivate ? (
+            <p className="mt-1 text-xs text-mute">
+              Connect the owner/admin wallet to continue. Email sign-in for this site
+              is served from a private URL set by the developer — open that URL
+              directly if you need to sign in without your wallet.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-mute">
+                Taking you to the sign-in page. Connect the owner/admin wallet, or use
+                an emailed code if you are on a device without that wallet.
+              </p>
+              <a
+                href={loginPath}
+                className="mt-3 inline-flex items-center justify-center rounded-card bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+              >
+                Continue to sign-in
+              </a>
+            </>
+          )}
         </div>
         <p className="text-center text-2xs text-faint">
           The first person who ever signed in is the permanent owner.
@@ -439,6 +484,15 @@ interface CronPayload {
 }
 
 function AutomationTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  // How many AI providers currently have a key. The council needs at least two
+  // independent models before "agreement" means anything.
+  const aiKeyCount =
+    (cfg.gemini_api_key ? 1 : 0) +
+    (cfg.openai_api_key ? 1 : 0) +
+    (cfg.anthropic_api_key ? 1 : 0) +
+    (cfg.groq_api_key ? 1 : 0) +
+    (cfg.deepseek_api_key ? 1 : 0);
+
   const [data, setData] = useState<CronPayload | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
@@ -521,6 +575,21 @@ function AutomationTab({ cfg, set }: { cfg: Config; set: Setter }) {
               cfg.ai_enabled && !cfg.gemini_api_key ? (
                 <Badge tone="warn">needs Gemini key</Badge>
               ) : null
+            }
+          />
+          <Switch
+            label="AI council (multi-model)"
+            hint="Asks every AI provider you configured the same question, in parallel, then compares. Agreement keeps the confidence; disagreement lowers it and the split is shown on the signal."
+            checked={cfg.ai_council_enabled}
+            onChange={(v) => set("ai_council_enabled", v)}
+            status={
+              !cfg.ai_enabled ? (
+                <Badge tone="warn">turn on AI analysis first</Badge>
+              ) : aiKeyCount < 2 ? (
+                <Badge tone="warn">add a 2nd AI key</Badge>
+              ) : (
+                <Badge tone="up">{aiKeyCount} models</Badge>
+              )
             }
           />
           <Switch
@@ -1361,11 +1430,34 @@ function ProvidersTab({ cfg, set }: { cfg: Config; set: Setter }) {
       hint="Server-side only — never sent to the browser. Existing values are shown masked; paste a new value to replace one."
     >
       <div className="grid gap-3 lg:grid-cols-2">
-        <Field label="Solana RPC URL" hint="Helius / Triton / QuickNode. The public RPC is heavily rate-limited.">
+        <Field
+          label="Public site URL"
+          hint="Your real domain, e.g. https://memepumps.vercel.app or https://yourdomain.com. Used for Telegram “Full analysis” buttons and email links. Set this after moving to a custom domain or cPanel — no redeploy needed."
+        >
+          <TextInput
+            value={cfg.site_url ?? ""}
+            onChange={(e) => set("site_url", e.target.value)}
+            className="font-mono"
+            placeholder="https://yourdomain.com"
+          />
+        </Field>
+        <Field label="Solana RPC URL" hint="Helius / Triton / QuickNode. The public RPC is heavily rate-limited and causes 429 errors on Top holders.">
           <TextInput
             value={cfg.rpc_url ?? ""}
             onChange={(e) => set("rpc_url", e.target.value)}
             className="font-mono"
+            placeholder="https://mainnet.helius-rpc.com/?api-key=..."
+          />
+        </Field>
+        <Field
+          label="Backup Solana RPC URL"
+          hint="Tried automatically when the primary returns 429 or is down. Any second provider works."
+        >
+          <TextInput
+            value={cfg.rpc_url_backup ?? ""}
+            onChange={(e) => set("rpc_url_backup", e.target.value)}
+            className="font-mono"
+            placeholder="https://… (optional)"
           />
         </Field>
         <Field label="Helius API key" hint="Whales, holders, launches.">
@@ -1396,6 +1488,52 @@ function ProvidersTab({ cfg, set }: { cfg: Config; set: Setter }) {
             className="font-mono"
           />
         </Field>
+      </div>
+
+      <div className="mt-4 border-t border-edge pt-4">
+        <div className="mb-1 text-xs font-semibold text-ink">
+          Extra AI providers (AI council)
+        </div>
+        <p className="mb-3 text-2xs text-mute">
+          Add as many as you like. Every key you fill in becomes another
+          independent opinion on each signal. When the models agree the
+          confidence stands; when they disagree it is cut, and the split is shown
+          in the signal. Turn the council on under Automation.
+        </p>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Field label="OpenAI API key" hint="platform.openai.com — gpt-4o-mini. Paid.">
+            <TextInput
+              value={cfg.openai_api_key ?? ""}
+              onChange={(e) => set("openai_api_key", e.target.value)}
+              className="font-mono"
+              placeholder="sk-…"
+            />
+          </Field>
+          <Field label="Anthropic API key" hint="console.anthropic.com — Claude 3.5 Haiku. Paid.">
+            <TextInput
+              value={cfg.anthropic_api_key ?? ""}
+              onChange={(e) => set("anthropic_api_key", e.target.value)}
+              className="font-mono"
+              placeholder="sk-ant-…"
+            />
+          </Field>
+          <Field label="Groq API key" hint="console.groq.com — Llama 3.3 70B. Has a free tier.">
+            <TextInput
+              value={cfg.groq_api_key ?? ""}
+              onChange={(e) => set("groq_api_key", e.target.value)}
+              className="font-mono"
+              placeholder="gsk_…"
+            />
+          </Field>
+          <Field label="DeepSeek API key" hint="platform.deepseek.com — very cheap per call.">
+            <TextInput
+              value={cfg.deepseek_api_key ?? ""}
+              onChange={(e) => set("deepseek_api_key", e.target.value)}
+              className="font-mono"
+              placeholder="sk-…"
+            />
+          </Field>
+        </div>
       </div>
     </Card>
   );
