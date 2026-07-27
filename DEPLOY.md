@@ -837,3 +837,46 @@ SuperTrend flip within two bars is treated as the actionable event.
 5. **Recency decay.** Older formations lose weight automatically.
 6. **No target, no signal.** A pattern that cannot produce a measured target and
    an invalidation level is not emitted, because it is not tradeable.
+
+
+---
+
+## Admin login door (ADMIN_LOGIN_PATH)
+
+The admin email-code sign-in form is served by a single runtime route,
+`src/app/[loginSlug]/page.tsx`. Its address is decided by `ADMIN_LOGIN_PATH`:
+
+| `ADMIN_LOGIN_PATH` | Sign-in form is at | `/signin` returns |
+| --- | --- | --- |
+| unset | `/signin` | the form |
+| `k7x-control-9f2` | `/k7x-control-9f2` | **404** |
+
+Only one door is ever open. Any slug that is not the configured one returns a
+plain 404, byte-identical to any other missing page — a "wrong path" message
+would confirm to a scanner that a private door exists.
+
+`/admin` itself never forwards to a private door. It asks
+`GET /api/auth/login-path`, which answers `{ private: true, path: null }` when a
+custom path is set: the caller learns a private door exists but not where. That
+response is readable by any unauthenticated visitor, so returning the path there
+would defeat the entire setting.
+
+### Applying a change
+
+`ADMIN_LOGIN_PATH` is read on the server at request time, but Vercel only
+injects environment variables into a **new build**. After adding or changing it:
+
+**Deployments → ⋯ → Redeploy → uncheck "Use existing Build Cache"**
+
+Until that finishes, the old door stays open and the new one 404s.
+
+### Order of operations
+
+Set `ADMIN_LOGIN_PATH` only **after** you have confirmed email sign-in works at
+the default `/signin`. Setting it first, on a site where SMTP is untested and
+your wallet is unavailable, locks both doors at once. Recovery then requires
+setting `BOOTSTRAP_ADMIN_WALLET` and redeploying, or promoting a row directly in
+the `app_users` table.
+
+This is an obscurity layer on top of the real checks — the role check, the
+`ADMIN_LOGIN_EMAILS` allowlist and the rate limits — never a replacement for them.

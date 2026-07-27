@@ -1,16 +1,19 @@
 "use client";
 
-// /signin — email code sign-in for admins.
+// Admin email-code sign-in form.
 //
 // This is the "I'm on a different device / laptop / borrowed phone and my wallet
 // is not here" path. It issues a normal session, so /admin works exactly as it
 // does after a wallet login.
+//
+// The URL that serves this form is decided by src/app/[loginSlug]/page.tsx and
+// controlled by ADMIN_LOGIN_PATH. This component never hardcodes its own path.
 import { useState } from "react";
 import { Badge, Button, Field, TextInput } from "@/components/ui";
 
 type Step = "email" | "code";
 
-export default function SignInPage() {
+export default function SignInForm() {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
