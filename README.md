@@ -429,3 +429,25 @@ SuperTrend flip within two bars is treated as the actionable event.
 5. **Recency decay.** Older formations lose weight automatically.
 6. **No target, no signal.** A pattern that cannot produce a measured target and
    an invalidation level is not emitted, because it is not tradeable.
+
+
+---
+
+## Lost access to Supabase?
+
+See **`SUPABASE-REBUILD.md`** for the full fresh-start procedure: recovery steps
+to try first, standing up a new project, running the schema, swapping the three
+environment variables, reclaiming admin ownership safely, and rotating secrets.
+
+Nothing in the codebase is hardcoded to a Supabase project — only three
+environment variables point at it, so migrating is configuration-only:
+
+| Variable | Where it comes from |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Settings → API → Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Settings → API → `anon` `public` key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Settings → API → `service_role` `secret` key |
+
+**Read the warning about custodial wallets before you start.** The encrypted
+user private keys lived in the old database, and `WALLET_MASTER_KEY` alone
+cannot recover them.
