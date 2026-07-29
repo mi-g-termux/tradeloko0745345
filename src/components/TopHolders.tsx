@@ -43,7 +43,16 @@ export function TopHolders({ address }: { address: string }) {
         const r = await fetch(`/api/holders/${address}`);
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? "Failed to load holders");
-        setData(j);
+        // The API answers { result: { supply, holderCount, holders }, priceUsd }.
+        // This used to do setData(j), so data.holders was undefined and reading
+        // .length crashed the whole tab. Unwrap the envelope explicitly.
+        if (j.error) throw new Error(j.error);
+        if (!j.result) {
+          setData(null);
+          setErr(j.reason ?? "Holder data is unavailable for this token.");
+          return;
+        }
+        setData({ ...j.result, priceUsd: j.priceUsd ?? null });
       } catch (e) {
         setErr((e as Error).message);
       } finally {
@@ -86,7 +95,7 @@ export function TopHolders({ address }: { address: string }) {
         </div>
       ) : err ? (
         <div className="text-red-400 text-sm py-2">{err}</div>
-      ) : !data || data.holders.length === 0 ? (
+      ) : !data || !data.holders || data.holders.length === 0 ? (
         <div className="text-slate-500 text-sm py-2">No holder data available.</div>
       ) : (
         <div className="overflow-x-auto">
@@ -102,7 +111,7 @@ export function TopHolders({ address }: { address: string }) {
               </tr>
             </thead>
             <tbody>
-              {data.holders.map((h, i) => {
+              {(data.holders ?? []).map((h, i) => {
                 const p = pnl[h.owner];
                 const big = h.pctSupply >= 5;
                 return (

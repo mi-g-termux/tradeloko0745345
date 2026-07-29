@@ -524,3 +524,33 @@ This job is also self-healing for withdrawals: if a transfer is broadcast but
 the confirmation wait times out, the old code wrote no row at all and the
 amount did not count against the 24h withdrawal cap. The next sync finds the
 signature on-chain and records it, closing that gap.
+
+---
+
+## Buy button / Jupiter swap hosts
+
+Jupiter **retired** `quote-api.jup.ag/v6`, which this project had hardcoded.
+Every quote request failed and the API returned 502, so Buy was dead on every
+token. The client now tries each host in order:
+
+1. `https://lite-api.jup.ag/swap/v1` - free, no key (Jupiter is winding it down)
+2. `https://api.jup.ag/swap/v1` - current gateway, keyless at a low rate limit
+
+Swaps work with **no key at all**. Setting `JUPITER_API_KEY` (from
+developers.jup.ag) only raises the rate limit and is sent as `x-api-key`.
+
+If Buy ever breaks again, check whether Jupiter changed hosts before debugging
+anything else - and add the new base URL to `JUPITER_SWAP_HOSTS` in
+`src/lib/config.ts` rather than replacing the list.
+
+## Top holders and RPC rate limits
+
+Holder lookups use `getTokenLargestAccounts`, which the **public** Solana RPC
+throttles aggressively. Symptoms were a 502 and raw `429 Too Many Requests`
+text in the UI. Now every holder read goes through RPC failover, results are
+cached for 60s, and a throttled upstream renders a plain explanation instead of
+an error.
+
+For this to be reliable in production, add a **free Helius key** in the admin
+panel (Providers tab) or as `HELIUS_API_KEY`. The public endpoint is shared by
+everyone and will keep throttling under real traffic.
