@@ -471,3 +471,82 @@ Re-run `supabase/schema.sql` in the Supabase SQL editor. It is idempotent. It
 adds the `token_boosts` table (24 tables total), the boost pricing columns on
 `admin_config`, and a unique index on `wallet_transactions (owner_id, signature)`
 that makes overlapping history syncs safe.
+
+
+### Boost payments are credited automatically
+
+A token team does **not** have to submit anything after paying. Two paths, both
+hands-off:
+
+- **From their in-app wallet** - one click, activated instantly.
+- **From any external wallet** - they send the SOL to the payout address and
+  stop. `/api/cron/boost-watch` reads that address, matches the incoming
+  transfer to the pending order, and activates the boost. The `/boost` page also
+  runs the same check when it loads, so a buyer who refreshes usually sees it
+  credited immediately rather than waiting for the next tick.
+
+The signature box on `/boost` is only a fallback for someone impatient, or for
+when the RPC is throttled. It is no longer the normal route.
+
+**How a payment is matched to an order (and why it is safe):**
+- A signature already recorded against any boost is skipped, and a unique index
+  on the column is the real guarantee - one payment can never fund two boosts.
+- A transfer only matches an order created **before** it (ten minutes of slack
+  for clock drift), so an old unrelated payment cannot activate a new order.
+- If several pending orders fit, the most expensive one the payment covers wins,
+  so the buyer gets the tier they actually paid for.
+- Overpaying by more than 25% is left pending for manual review rather than
+  being quietly swallowed.
+- The amount is read from the payout account's real balance change on a
+  confirmed transaction, not from anything the buyer claims.
+
+With no pending orders the job returns before making a single RPC call, so it is
+free to run every 5 minutes.
+
+**cron-job.org now has 12 entries.** The two boost jobs are:
+
+| Path | Every |
+| --- | --- |
+| `/api/cron/boost-watch` | 5 min |
+| `/api/cron/boost-expire` | 60 min |
+
+
+### Boost checkout, admin grants and receipts
+
+**The checkout works like a hosted crypto payment page.** When a buyer picks a
+package, the server generates a brand-new Solana address that belongs to that
+order and nothing else, and shows it as the payment address. Because no other
+order shares it, any SOL arriving there is proof of payment for that exact
+order - there is no amount guessing, no memo, no reference to paste, and no way
+to credit the wrong buyer.
+
+The `boost-watch` cron job (every 5 minutes) checks the balance of each pending
+order's address. When it sees the money it:
+
+1. Flips the order to `active` and starts the clock from that moment, so a buyer
+   who pays late still gets the full duration.
+2. Sweeps the balance to your payout wallet automatically, minus the network
+   fee. If the sweep fails the funds stay in an address only your server can
+   spend, and the next run retries it.
+3. Emails the buyer a receipt, and a copy to you.
+
+Refreshing the `/boost` page also triggers a check, so payment usually shows as
+confirmed within seconds rather than waiting for the cron.
+
+Orders created before this existed shared one payout wallet. Those still work:
+the watcher scans that wallet's recent transfers and matches on amount.
+
+**Requires `WALLET_MASTER_KEY`.** The per-order address secret is encrypted with
+it, exactly like a user wallet. If it is not set, checkout falls back to the
+shared payout wallet and amount matching - the sale still works, it is just less
+precise.
+
+**Admin grants.** Admin panel -> Boosts -> "Add a boost yourself". Enter a token
+address, tier and duration, and it goes live immediately with no payment. It is
+recorded at a price of 0 with `granted_by` set to your name, so granted boosts
+never get mixed up with sold ones in your numbers.
+
+**Receipts.** Admin panel -> Boosts -> "Receipts" sets the address your copy is
+sent to. Leave it blank to fall back to `ADMIN_LOGIN_EMAILS`. Requires SMTP set
+up in the Alerts tab. Receipts are sent once per order and never duplicated,
+even if a cron run is retried.

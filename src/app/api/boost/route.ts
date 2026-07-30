@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getAdminConfig, boostsReady } from "@/lib/adminConfig";
 import {
+  autoVerifyPendingBoosts,
   createBoostOrder,
   getActiveBoosts,
   listOwnerBoosts,
@@ -20,6 +21,17 @@ export async function GET() {
   const cfg = await getAdminConfig();
   const ready = boostsReady(cfg);
   const user = await getCurrentUser();
+
+  // Opportunistic check so a buyer who just sent SOL sees it credited on the
+  // next refresh rather than waiting for the cron tick. Best-effort only: a
+  // slow or throttled RPC must never block the page from rendering.
+  if (ready) {
+    try {
+      await autoVerifyPendingBoosts();
+    } catch {
+      // The cron job will retry.
+    }
+  }
 
   let balanceSol = 0;
   let orders: unknown[] = [];

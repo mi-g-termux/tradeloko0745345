@@ -83,6 +83,7 @@ interface Config {
   // Paid token boosts (our own promotion product)
   boosts_enabled: boolean;
   boost_wallet: string;
+  boost_notify_email: string;
   boost_tier1_sol: number;
   boost_tier1_hours: number;
   boost_tier2_sol: number;
@@ -1552,6 +1553,39 @@ function ProvidersTab({ cfg, set }: { cfg: Config; set: Setter }) {
 }
 
 function BoostsTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  const [grantToken, setGrantToken] = useState("");
+  const [grantTier, setGrantTier] = useState(1);
+  const [grantHours, setGrantHours] = useState(24);
+  const [granting, setGranting] = useState(false);
+  const [grantMsg, setGrantMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function grant() {
+    setGranting(true);
+    setGrantMsg(null);
+    try {
+      const r = await fetch("/api/admin/boost", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tokenAddress: grantToken.trim(),
+          tier: grantTier,
+          hours: grantHours,
+        }),
+      });
+      const j = await r.json();
+      if (r.ok && j.ok) {
+        setGrantMsg({ ok: true, text: "Boost is live for " + grantHours + " hours." });
+        setGrantToken("");
+      } else {
+        setGrantMsg({ ok: false, text: j.error || "Could not create the boost." });
+      }
+    } catch (e) {
+      setGrantMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setGranting(false);
+    }
+  }
+
   const ready =
     cfg.boosts_enabled &&
     (cfg.boost_wallet ?? "").trim().length > 0 &&
@@ -1593,6 +1627,50 @@ function BoostsTab({ cfg, set }: { cfg: Config; set: Setter }) {
             retires boosts when their time is up.
           </p>
         )}
+      </Card>
+
+      <Card
+        title="Add a boost yourself"
+        hint="Promote any token with no payment - for a launch partner, an apology for downtime, or your own token. It is recorded at a price of 0 and marked as granted by you, so your revenue numbers stay honest."
+      >
+        <Field label="Token mint address">
+          <TextInput
+            value={grantToken}
+            onChange={(e) => setGrantToken(e.target.value)}
+            placeholder="Token address to promote"
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Num label="Tier (1-3, ranking weight)" value={grantTier} step={1} onChange={setGrantTier} />
+          <Num label="Duration (hours)" value={grantHours} step={1} onChange={setGrantHours} />
+        </div>
+        <Button
+          variant="outline"
+          size="md"
+          onClick={grant}
+          disabled={granting || grantToken.trim().length < 32}
+        >
+          {granting ? "Adding..." : "Add boost"}
+        </Button>
+        {grantMsg ? (
+          <p className={"text-2xs " + (grantMsg.ok ? "text-up" : "text-down")}>{grantMsg.text}</p>
+        ) : null}
+      </Card>
+
+      <Card
+        title="Receipts"
+        hint="When a boost goes live the buyer is emailed a receipt automatically. Send yourself a copy so you know the moment money comes in. Needs SMTP set up in the Alerts tab."
+      >
+        <Field
+          label="Send boost receipts to"
+          hint="Leave blank to fall back to the ADMIN_LOGIN_EMAILS addresses."
+        >
+          <TextInput
+            value={cfg.boost_notify_email ?? ""}
+            onChange={(e) => set("boost_notify_email", e.target.value)}
+            placeholder="you@yourdomain.com"
+          />
+        </Field>
       </Card>
 
       <Card

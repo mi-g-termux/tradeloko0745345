@@ -259,6 +259,66 @@ export function testEmail(appUrl: string): BuiltEmail {
  * and would let anyone with inbox access in silently. A typed code requires
  * a human.
  */
+/** A paid or granted token boost just went live. */
+export function boostConfirmedEmail(opts: {
+  tokenAddress: string;
+  tierName: string;
+  priceSol: number;
+  hours: number;
+  expiresAt: string;
+  reference: string;
+  signature: string | null;
+  appUrl: string;
+}): BuiltEmail {
+  const accent = EMERALD;
+  const tokenUrl = `${opts.appUrl}/token/${opts.tokenAddress}`;
+  const paid = opts.priceSol > 0 ? fmtSol(opts.priceSol) : "Granted by the team";
+  const until = new Date(opts.expiresAt).toUTCString();
+
+  const rows: string[] = [];
+  rows.push(statRow("Token", esc(shortAddr(opts.tokenAddress))));
+  rows.push(statRow("Package", `${esc(opts.tierName)} · ${opts.hours}h`));
+  rows.push(statRow("Paid", esc(paid)));
+  rows.push(statRow("Runs until", esc(until)));
+  rows.push(statRow("Reference", esc(opts.reference)));
+  if (opts.signature && !opts.signature.startsWith("charge:")) {
+    rows.push(statRow("Transaction", esc(shortAddr(opts.signature))));
+  }
+
+  const bodyRows = `
+  <tr><td style="padding:6px 24px 2px 24px;">${pill("Boost active", accent)}</td></tr>
+  <tr><td style="padding:8px 24px 2px 24px;color:${TEXT};font-size:20px;font-weight:700;">Your boost is live</td></tr>
+  <tr><td style="padding:2px 24px 14px 24px;color:${MUTED};font-size:13px;">Payment cleared and the token is now promoted in the trending feed.</td></tr>
+  <tr><td style="padding:0 24px 8px 24px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows.join("")}</table>
+  </td></tr>`;
+
+  const html = shell({
+    accent,
+    preheader: `Boost active · ${opts.tierName} · ${opts.hours}h`,
+    bodyRows,
+    ctaLabel: "View your boost",
+    ctaUrl: tokenUrl,
+    appUrl: opts.appUrl,
+  });
+
+  const textLines = [
+    `${BRAND} - your boost is live`,
+    `Token: ${opts.tokenAddress}`,
+    `Package: ${opts.tierName} (${opts.hours}h)`,
+    `Paid: ${paid}`,
+    `Runs until: ${until}`,
+    `Reference: ${opts.reference}`,
+    `View: ${tokenUrl}`,
+  ];
+
+  return {
+    subject: `Your ${opts.tierName} boost is live on ${BRAND}`,
+    html,
+    text: textLines.join(String.fromCharCode(10)),
+  };
+}
+
 export function loginCodeEmail(opts: {
   code: string;
   appUrl: string;

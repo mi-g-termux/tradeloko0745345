@@ -83,6 +83,7 @@ const PLAIN_KEYS = [
   "boost_tier2_hours",
   "boost_tier3_sol",
   "boost_tier3_hours",
+  "boost_notify_email",
 ];
 
 export async function GET() {

@@ -94,6 +94,8 @@ export interface AdminConfig {
   boostTier2Hours: number;
   boostTier3Sol: number;
   boostTier3Hours: number;
+  /** Where boost receipts go. Blank falls back to ADMIN_LOGIN_EMAILS. */
+  boostNotifyEmail: string;
 }
 
 const DEFAULTS: AdminConfig = {
@@ -159,6 +161,7 @@ const DEFAULTS: AdminConfig = {
   boostTier2Hours: 48,
   boostTier3Sol: 4,
   boostTier3Hours: 168,
+  boostNotifyEmail: "",
 };
 
 let cache: { value: AdminConfig; expiry: number } | null = null;
@@ -260,6 +263,7 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.boostTier2Hours = Number(data.boost_tier2_hours ?? DEFAULTS.boostTier2Hours);
       merged.boostTier3Sol = Number(data.boost_tier3_sol ?? DEFAULTS.boostTier3Sol);
       merged.boostTier3Hours = Number(data.boost_tier3_hours ?? DEFAULTS.boostTier3Hours);
+      merged.boostNotifyEmail = data.boost_notify_email ?? "";
     }
   }
 

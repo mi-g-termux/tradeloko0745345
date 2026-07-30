@@ -608,3 +608,14 @@ alter table admin_config add column if not exists boost_tier3_hours integer;
 -- Makes overlapping wallet-history syncs idempotent.
 create unique index if not exists wallet_tx_owner_signature
   on wallet_transactions (owner_id, signature) where signature is not null;
+
+
+-- ── 8. Coinbase-style checkout: one payment address per order ──────────────
+-- Each order gets its own Solana address, so any SOL arriving there can only
+-- belong to that order. No amount guessing, no reference matching. The secret
+-- is encrypted with WALLET_MASTER_KEY exactly like a user wallet.
+alter table if exists token_boosts add column if not exists pay_secret text;
+alter table if exists token_boosts add column if not exists swept_signature text;
+alter table if exists token_boosts add column if not exists notified_at timestamptz;
+alter table if exists token_boosts add column if not exists granted_by text;
+alter table if exists admin_config add column if not exists boost_notify_email text default '';

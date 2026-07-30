@@ -12,7 +12,13 @@
 //    submit the signature, which we verify against the chain.
 //  * Expiry is computed from the moment payment cleared, not from order time,
 //    so a buyer who pays an hour later still gets the full duration.
-import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import {
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import { getServiceClient } from "@/lib/supabase";
 import {
   boostPackages,
@@ -22,6 +28,10 @@ import {
 } from "@/lib/adminConfig";
 import { getConnection } from "@/lib/solana/rpc";
 import { withdrawSol } from "@/lib/wallet/custodial";
+import { decryptSecret, encryptSecret, walletCryptoReady } from "@/lib/wallet/crypto";
+import { sendEmail } from "@/lib/notify/email";
+import { boostConfirmedEmail } from "@/lib/notify/emailTemplates";
+import { adminEmailAllowlist, appBaseUrl } from "@/lib/config";
 
 export interface BoostOrder {
   id: string;
@@ -35,6 +45,8 @@ export interface BoostOrder {
   signature: string | null;
   expiresAt: string | null;
   createdAt: string;
+  /** Encrypted secret for this order own payment address, when it has one. */
+  paySecret: string | null;
 }
 
 export interface ActiveBoost {
@@ -56,6 +68,7 @@ function rowToOrder(r: any): BoostOrder {
     signature: r.signature ?? null,
     expiresAt: r.expires_at ?? null,
     createdAt: String(r.created_at),
+    paySecret: r.pay_secret ?? null,
   };
 }
 
@@ -109,7 +122,38 @@ export async function createBoostOrder(
   if (error || !data) {
     return { ok: false, error: error?.message ?? "Could not create the order." };
   }
-  return { ok: true, order: rowToOrder(data) };
+
+  // Give this order its own payment address. This is what makes the checkout
+  // work like a hosted payment page: the buyer just sends SOL, and because no
+  // other order shares this address, seeing any balance here is proof of
+  // payment. Falls back to the shared payout wallet if no master key is set,
+  // so a missing key degrades the experience instead of blocking the sale.
+  let row: any = data;
+  if (walletCryptoReady()) {
+    try {
+      const kp = Keypair.generate();
+      const { data: updated } = await db
+        .from("token_boosts")
+        .update({
+          pay_to: kp.publicKey.toBase58(),
+          pay_secret: encryptSecret(kp.secretKey, String(data.id)),
+        })
+        .eq("id", data.id)
+        .select("*")
+        .maybeSingle();
+      if (updated) row = updated;
+    } catch {
+      // Keep the shared payout address; the amount-matching watcher covers it.
+    }
+  }
+  return { ok: true, order: rowToOrder(row) };
+}
+
+/** Human name for a tier, used in receipts. */
+function tierLabel(tier: number): string {
+  if (tier >= 3) return "Headline";
+  if (tier === 2) return "Growth";
+  return "Starter";
 }
 
 async function activate(
@@ -131,6 +175,7 @@ async function activate(
     .eq("id", orderId)
     .eq("status", "pending");
   if (error) return null;
+  await notifyBoostConfirmed(orderId).catch(() => undefined);
   return expiresAt;
 }
 
@@ -329,4 +374,290 @@ export function publicPackages(cfg: AdminConfig) {
     priceSol: p.priceSol,
     hours: p.hours,
   }));
+}
+
+/**
+ * Move a cleared payment from the order's own address to the admin payout
+ * wallet. Best-effort and safe to retry: if it fails the money still sits in an
+ * address only this server can spend, and the next cron run tries again.
+ */
+async function sweepCharge(order: BoostOrder, payout: string): Promise<void> {
+  if (!order.paySecret || !payout) return;
+  const db = getServiceClient();
+  if (!db) return;
+  const conn = await getConnection();
+  const kp = Keypair.fromSecretKey(decryptSecret(order.paySecret, order.id));
+  const balance = await conn.getBalance(kp.publicKey, "confirmed");
+  const FEE_LAMPORTS = 5000;
+  const lamports = balance - FEE_LAMPORTS;
+  if (lamports <= 0) return;
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: kp.publicKey,
+      toPubkey: new PublicKey(payout),
+      lamports,
+    }),
+  );
+  const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = kp.publicKey;
+  tx.sign(kp);
+  const signature = await conn.sendRawTransaction(tx.serialize(), { maxRetries: 3 });
+  await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
+  await db.from("token_boosts").update({ swept_signature: signature }).eq("id", order.id);
+}
+
+/**
+ * Email the buyer, and a copy to the admin, the moment a boost goes live.
+ * notified_at makes this idempotent so a retried cron run cannot double-send.
+ */
+async function notifyBoostConfirmed(orderId: string): Promise<void> {
+  const db = getServiceClient();
+  if (!db) return;
+  const { data } = await db.from("token_boosts").select("*").eq("id", orderId).maybeSingle();
+  if (!data || (data as any).notified_at) return;
+  const order = rowToOrder(data);
+  if (!order.expiresAt) return;
+
+  const cfg = await getAdminConfig();
+  const recipients: string[] = [];
+  const ownerId = (data as any).owner_id ?? null;
+
+  if (ownerId) {
+    const { data: u } = await db.from("app_users").select("email").eq("id", ownerId).maybeSingle();
+    const email = (u as any)?.email;
+    if (email) recipients.push(String(email));
+  }
+
+  const adminBox = (cfg.boostNotifyEmail || "").trim();
+  if (adminBox) recipients.push(adminBox);
+  else for (const a of adminEmailAllowlist()) recipients.push(a);
+
+  const unique = Array.from(new Set(recipients.filter(Boolean)));
+  if (unique.length === 0) return;
+
+  const built = boostConfirmedEmail({
+    tokenAddress: order.tokenAddress,
+    tierName: tierLabel(order.tier),
+    priceSol: order.priceSol,
+    hours: order.durationHours,
+    expiresAt: order.expiresAt,
+    reference: order.reference,
+    signature: order.signature,
+    appUrl: appBaseUrl(),
+  });
+
+  for (const to of unique) {
+    await sendEmail(to, built, "boost_confirmed", { ownerId, force: true }).catch(() => undefined);
+  }
+  await db
+    .from("token_boosts")
+    .update({ notified_at: new Date().toISOString() })
+    .eq("id", orderId);
+}
+
+/**
+ * Credit boosts automatically the moment payment lands. Nothing to submit.
+ *
+ * Modern orders each own a payment address, so detection is exact: any SOL that
+ * reaches that address can only belong to that one order. Once seen, the
+ * balance is swept to the admin payout wallet. Older orders that shared the
+ * payout address still work via the amount-matching scan below.
+ */
+export async function autoVerifyPendingBoosts(): Promise<{
+  pending: number;
+  scanned: number;
+  activated: number;
+  swept: number;
+}> {
+  const out = { pending: 0, scanned: 0, activated: 0, swept: 0 };
+
+  const cfg = await getAdminConfig();
+  if (!boostsReady(cfg)) return out;
+  const payout = cfg.boostWallet.trim();
+
+  const db = getServiceClient();
+  if (!db) return out;
+
+  const { data: pendingRows } = await db
+    .from("token_boosts")
+    .select("*")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(100);
+  const pending = (pendingRows ?? []).map(rowToOrder);
+  out.pending = pending.length;
+
+  const { data: unsweptRows } = await db
+    .from("token_boosts")
+    .select("*")
+    .eq("status", "active")
+    .is("swept_signature", null)
+    .not("pay_secret", "is", null)
+    .limit(25);
+  const unswept = (unsweptRows ?? []).map(rowToOrder);
+
+  if (pending.length === 0 && unswept.length === 0) return out;
+
+  let conn;
+  try {
+    conn = await getConnection();
+  } catch {
+    return out;
+  }
+
+  const legacy: BoostOrder[] = [];
+
+  for (const order of pending) {
+    if (!order.paySecret) {
+      legacy.push(order);
+      continue;
+    }
+    out.scanned += 1;
+    let lamports = 0;
+    try {
+      lamports = await conn.getBalance(new PublicKey(order.payTo), "confirmed");
+    } catch {
+      continue;
+    }
+    const required = Math.round(order.priceSol * LAMPORTS_PER_SOL);
+    if (lamports < required * 0.995) continue;
+
+    const expiresAt = await activate(order.id, "charge:" + order.payTo, order.durationHours);
+    if (!expiresAt) continue;
+    out.activated += 1;
+    try {
+      await sweepCharge(order, payout);
+      out.swept += 1;
+    } catch {
+      // Retried on the next run.
+    }
+  }
+
+  for (const order of unswept) {
+    try {
+      await sweepCharge(order, payout);
+      out.swept += 1;
+    } catch {
+      // Retried on the next run.
+    }
+  }
+
+  if (legacy.length > 0 && payout) {
+    const { data: usedRows } = await db
+      .from("token_boosts")
+      .select("signature")
+      .not("signature", "is", null)
+      .limit(500);
+    const used = new Set((usedRows ?? []).map((r: any) => String(r.signature)));
+
+    let sigs;
+    try {
+      sigs = await conn.getSignaturesForAddress(new PublicKey(payout), { limit: 50 });
+    } catch {
+      return out;
+    }
+
+    const remaining = [...legacy];
+    for (const info of sigs) {
+      if (remaining.length === 0) break;
+      if (info.err || used.has(info.signature)) continue;
+      out.scanned += 1;
+
+      let tx;
+      try {
+        tx = await conn.getTransaction(info.signature, {
+          maxSupportedTransactionVersion: 0,
+          commitment: "confirmed",
+        });
+      } catch {
+        continue;
+      }
+      if (!tx || !tx.meta || tx.meta.err) continue;
+
+      const keys = tx.transaction.message
+        .getAccountKeys()
+        .staticAccountKeys.map((k: PublicKey) => k.toBase58());
+      const idx = keys.indexOf(payout);
+      if (idx < 0) continue;
+
+      const gainedLamports =
+        Number(tx.meta.postBalances[idx] ?? 0) - Number(tx.meta.preBalances[idx] ?? 0);
+      if (gainedLamports <= 0) continue;
+      const gainedSol = gainedLamports / LAMPORTS_PER_SOL;
+      const blockMs = (info.blockTime ?? tx.blockTime ?? 0) * 1000;
+      const SLACK_MS = 10 * 60 * 1000;
+
+      const match = remaining
+        .filter((o) => gainedSol >= o.priceSol * 0.995)
+        .filter((o) => gainedSol <= o.priceSol * 1.25)
+        .filter((o) => !blockMs || blockMs + SLACK_MS >= new Date(o.createdAt).getTime())
+        .sort((a, b) => b.priceSol - a.priceSol)[0];
+      if (!match) continue;
+
+      const expiresAt = await activate(match.id, info.signature, match.durationHours);
+      if (!expiresAt) continue;
+      used.add(info.signature);
+      remaining.splice(
+        remaining.findIndex((o) => o.id === match.id),
+        1,
+      );
+      out.activated += 1;
+    }
+  }
+
+  return out;
+}
+
+/**
+ * Admin-granted boost: no payment, no order, straight to active.
+ * Recorded at a price of 0 with granted_by set, so it is always obvious this
+ * one was given rather than sold and the revenue numbers stay honest.
+ */
+export async function grantBoost(opts: {
+  tokenAddress: string;
+  tier: number;
+  hours: number;
+  grantedBy: string;
+}): Promise<{ ok: boolean; error?: string; order?: BoostOrder }> {
+  const tokenAddress = opts.tokenAddress.trim();
+  try {
+    new PublicKey(tokenAddress);
+  } catch {
+    return { ok: false, error: "That does not look like a valid token mint address." };
+  }
+  const hours = Number(opts.hours);
+  if (!hours || hours <= 0) {
+    return { ok: false, error: "Duration must be more than 0 hours." };
+  }
+  const tier = Number(opts.tier) || 1;
+
+  const db = getServiceClient();
+  if (!db) return { ok: false, error: "Database is not configured." };
+
+  const cfg = await getAdminConfig();
+  const now = new Date();
+  const { data, error } = await db
+    .from("token_boosts")
+    .insert({
+      owner_id: null,
+      token_address: tokenAddress,
+      tier,
+      price_sol: 0,
+      duration_hours: hours,
+      reference: newReference(),
+      pay_to: cfg.boostWallet.trim(),
+      status: "active",
+      paid_at: now.toISOString(),
+      expires_at: new Date(now.getTime() + hours * 3600_000).toISOString(),
+      granted_by: opts.grantedBy,
+    })
+    .select("*")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false, error: error?.message ?? "Could not create the boost." };
+  }
+  await notifyBoostConfirmed(String(data.id)).catch(() => undefined);
+  return { ok: true, order: rowToOrder(data) };
 }

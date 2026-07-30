@@ -5,8 +5,11 @@
 //   1. Pay from the in-app wallet: one click, the server signs the transfer with
 //      the buyer's own custodial key and the boost activates immediately.
 //   2. Pay from any external wallet: send the exact amount to the shown address
-//      and submit the signature. The server verifies the transfer on-chain
-//      before activating - a signature alone proves nothing until checked.
+//      and stop there. A watcher reads the payout wallet and activates the boost
+//      as soon as the SOL lands, so nothing has to be submitted by hand. The
+//      signature box below is only a fallback for when the buyer is impatient or
+//      the RPC is having a bad day. Either way the transfer is verified
+//      on-chain first - a signature alone proves nothing until checked.
 import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Rocket, Wallet } from "lucide-react";
 import { Badge, Button, Field, TextInput } from "@/components/ui";
@@ -263,6 +266,14 @@ export default function BoostPage() {
                 {order.payTo}
               </div>
               <div className="text-2xs text-faint">Reference {order.reference}</div>
+              <div className="rounded-card border border-edge bg-panel-2 p-2 text-2xs text-mute">
+                That is all you need to do. This page checks the payout wallet
+                automatically and activates your boost within a few minutes of the
+                SOL arriving — keep this tab open or come back later.
+              </div>
+              <div className="text-2xs text-faint">
+                In a hurry? Paste the transaction signature to verify it instantly.
+              </div>
               <TextInput
                 value={signature}
                 onChange={(e) => setSignature(e.target.value)}
@@ -275,7 +286,7 @@ export default function BoostPage() {
                 onClick={confirmExternal}
                 disabled={busy || signature.trim().length < 20}
               >
-                Verify payment
+                Verify payment now
               </Button>
             </div>
           </div>
