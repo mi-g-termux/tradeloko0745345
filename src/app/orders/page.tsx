@@ -61,7 +61,8 @@ export default function OrdersPage() {
       <h1 className="text-2xl font-semibold text-zinc-100">Limit / TP / SL orders</h1>
       <p className="mt-1 text-sm text-zinc-400">
         Set a trigger price and the keeper executes automatically. Buys and
-        take-profit/stop-loss sells run on the bot&apos;s hot wallet (server-signed),
+        take-profit/stop-loss sells are signed with your own in-app wallet and paid
+        from your balance,
         behind the same safety + spend caps.
       </p>
 

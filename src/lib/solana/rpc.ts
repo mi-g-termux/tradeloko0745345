@@ -108,15 +108,11 @@ export interface HolderConcentration {
 export async function getHolderConcentration(
   mint: string,
 ): Promise<HolderConcentration | null> {
+  const conn = await getConnection();
   const mintInfo = await getMintInfo(mint);
   if (!mintInfo || mintInfo.supply <= 0) return null;
-  // This was the one holder read still pinned to a single endpoint, so a 429 on
-  // the primary RPC threw instead of moving to the backup.
-  const amounts = await withRpcFailover<number[]>((conn) =>
-    conn
-      .getTokenLargestAccounts(new PublicKey(mint))
-      .then((r) => r.value.map((a) => Number(a.uiAmount ?? 0))),
-  );
+  const largest = await conn.getTokenLargestAccounts(new PublicKey(mint));
+  const amounts = largest.value.map((a) => Number(a.uiAmount ?? 0));
   if (amounts.length === 0) return null;
   const top1 = amounts[0] ?? 0;
   const top10 = amounts.slice(0, 10).reduce((s, v) => s + v, 0);

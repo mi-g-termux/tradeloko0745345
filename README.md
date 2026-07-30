@@ -525,32 +525,62 @@ the confirmation wait times out, the old code wrote no row at all and the
 amount did not count against the 24h withdrawal cap. The next sync finds the
 signature on-chain and records it, closing that gap.
 
----
 
-## Buy button / Jupiter swap hosts
+## Paid token boosts (your own promotion product)
 
-Jupiter **retired** `quote-api.jup.ag/v6`, which this project had hardcoded.
-Every quote request failed and the API returned 502, so Buy was dead on every
-token. The client now tries each host in order:
+Token teams pay **you** to rank at the top of your Trending feed. Nothing about
+this depends on a third party.
 
-1. `https://lite-api.jup.ag/swap/v1` - free, no key (Jupiter is winding it down)
-2. `https://api.jup.ag/swap/v1` - current gateway, keyless at a low rate limit
+**Turn it on:** Admin panel -> **Token boosts**.
+1. Set a **boost payout wallet** (a SOL address you control). Boosts stay off
+   until this is set - taking money with no destination would lose it.
+2. Price the three packages (Starter / Growth / Headline). You choose the SOL
+   price and how many hours each boost runs. **Set a price to 0 to take that
+   package off sale** - it is never given away free.
+3. Switch **Boosts are on sale** on.
+4. Add the 11th cron-job.org entry, `/api/cron/boost-expire`, hourly. Ranking
+   already ignores expired boosts, so this is bookkeeping.
 
-Swaps work with **no key at all**. Setting `JUPITER_API_KEY` (from
-developers.jup.ag) only raises the rate limit and is sent as `x-api-key`.
+**How a buyer pays (both paths are automatic):**
+- **From their in-app wallet** - one click. The server signs the transfer with
+  that buyer's own custodial key, so the SOL leaves *their* balance. The boost
+  activates immediately.
+- **From any external wallet** - they send the exact amount to the payout
+  address and paste the transaction signature. The server fetches the confirmed
+  transaction and requires that the payout account's balance actually increased
+  by at least the package price before activating. A signature on its own proves
+  nothing, so it is always checked against the chain. One signature can never
+  fund two boosts (enforced by a unique index).
 
-If Buy ever breaks again, check whether Jupiter changed hosts before debugging
-anything else - and add the new base URL to `JUPITER_SWAP_HOSTS` in
-`src/lib/config.ts` rather than replacing the list.
+Orders live in the `token_boosts` table and start as `pending`. Only a verified
+payment flips them to `active`, and expiry is measured from the moment payment
+cleared - a buyer who pays late still gets the full duration.
 
-## Top holders and RPC rate limits
+Boosted tokens are surfaced in Trending even when they are nowhere near the
+organic volume leaders (that is what was paid for) and always carry a visible
+**Boosted** badge, so traders can tell paid placement from organic ranking.
 
-Holder lookups use `getTokenLargestAccounts`, which the **public** Solana RPC
-throttles aggressively. Symptoms were a 502 and raw `429 Too Many Requests`
-text in the UI. Now every holder read goes through RPC failover, results are
-cached for 60s, and a throttled upstream renders a plain explanation instead of
-an error.
+## Buying with the in-app wallet (no browser extension)
 
-For this to be reliable in production, add a **free Helius key** in the admin
-panel (Providers tab) or as `HELIUS_API_KEY`. The public endpoint is shared by
-everyone and will keep throttling under real traffic.
+The Buy panel on a token page now defaults to **My wallet**: the trade is paid
+from the balance in the wallet the user created on this site, signed server-side
+with that user's own custodial key. No Phantom, and never the platform's wallet.
+
+A trade is refused *before* any transaction is sent when:
+- the user is not signed in, or has no in-app wallet yet;
+- the balance is **0 SOL**;
+- the balance cannot cover the amount plus about 0.003 SOL of network fees.
+
+Each case shows a plain reason and a link to deposit, instead of firing a
+transaction that is guaranteed to fail. The same balance check runs again
+server-side, so the UI is a courtesy and not the security boundary.
+
+**Phantom** is still available as an explicit opt-in tab for people who prefer
+to keep custody. It is no longer the only way to trade.
+
+## Database change for boosts
+
+Re-run `supabase/schema.sql` in the Supabase SQL editor. It is idempotent. It
+adds the `token_boosts` table (24 tables total), the boost pricing columns on
+`admin_config`, and a unique index on `wallet_transactions (owner_id, signature)`
+that makes overlapping history syncs safe.

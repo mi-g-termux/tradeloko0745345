@@ -115,7 +115,7 @@ export default function MarketStrip({
         <StatTile
           label="Pairs tracked"
           value={count(tokens.length)}
-          sub="live from DexScreener"
+          sub="live market data"
         />
       </div>
     </div>

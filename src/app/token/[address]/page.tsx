@@ -160,7 +160,7 @@ export default function TokenPage() {
       <div className="card space-y-3 p-5">
         <div className="font-bold text-ink">Brand-new token</div>
         <p className="text-sm text-mute">
-          This token is not on DexScreener yet. Freshly-launched pump.fun tokens
+          This token is not indexed by the market data feeds yet. Freshly-launched pump.fun tokens
           take a few minutes to be indexed by DEX aggregators, and they trade on
           the pump.fun bonding curve until they graduate to a DEX. In-app
           (Jupiter) buys work after graduation; until then, trade it on pump.fun.
@@ -177,7 +177,7 @@ export default function TokenPage() {
             rel="noreferrer"
           >
             <Button variant="outline" size="md">
-              DexScreener <ExternalLink size={14} />
+              Open chart <ExternalLink size={14} />
             </Button>
           </a>
           <a
@@ -392,7 +392,7 @@ export default function TokenPage() {
               <Tile
                 label="Traders"
                 value={count(summary.traders24h)}
-                hint="Activity proxy (buys + sells), not unique wallets — DexScreener's free API does not expose makers."
+                hint="Activity proxy (buys + sells), not unique wallets — the free market data feed does not expose makers."
               />
             </div>
 
@@ -443,7 +443,7 @@ export default function TokenPage() {
             {summary.url ? (
               <a href={summary.url} target="_blank" rel="noreferrer" className="block">
                 <Button variant="outline" className="w-full justify-center">
-                  Open on DexScreener <ExternalLink size={13} />
+                  Open chart <ExternalLink size={13} />
                 </Button>
               </a>
             ) : null}

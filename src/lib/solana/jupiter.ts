@@ -11,40 +11,8 @@ import {
   VersionedTransaction,
 } from "@solana/web3.js";
 import bs58 from "bs58";
-import { JUPITER_SWAP_HOSTS, SERVER_ENV, WSOL_MINT } from "../config";
+import { JUPITER_QUOTE_API, WSOL_MINT } from "../config";
 import { fetchJson } from "../http";
-
-/**
- * Call a Jupiter swap endpoint, trying each host until one answers.
- *
- * A single hardcoded host is exactly how "Buy" broke: Jupiter retired the v6
- * domain and every quote 502'd. Walking the list means a retired or rate-limited
- * host degrades to the next one instead of taking the feature down.
- *
- * The last error is rethrown with all hosts named, so the logs say which hosts
- * were tried rather than just "fetch failed".
- */
-async function jupFetch<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
-  const key = SERVER_ENV.jupiterKeyEnv;
-  const headers: Record<string, string> = {
-    ...((init.headers as Record<string, string>) ?? {}),
-  };
-  // Keyless works on both hosts; a key simply raises the rate limit.
-  if (key) headers["x-api-key"] = key;
-
-  const errors: string[] = [];
-  for (const host of JUPITER_SWAP_HOSTS) {
-    try {
-      return await fetchJson<T>(`${host}${path}`, { ...init, headers });
-    } catch (err) {
-      errors.push(`${host}: ${(err as Error).message}`);
-    }
-  }
-  throw new Error(`All Jupiter hosts failed - ${errors.join(" | ")}`);
-}
 
 export interface QuoteResult {
   inAmountLamports: string;
@@ -61,11 +29,11 @@ export async function getSwapQuote(
   amountRaw: string | number,
   slippageBps: number,
 ): Promise<QuoteResult> {
-  const path =
-    `/quote?inputMint=${encodeURIComponent(inputMint)}` +
+  const url =
+    `${JUPITER_QUOTE_API}/quote?inputMint=${encodeURIComponent(inputMint)}` +
     `&outputMint=${encodeURIComponent(outputMint)}` +
     `&amount=${amountRaw}&slippageBps=${slippageBps}`;
-  const q = await jupFetch<any>(path);
+  const q = await fetchJson<any>(url);
   return {
     inAmountLamports: q.inAmount,
     outAmount: q.outAmount,
@@ -97,11 +65,14 @@ export async function buildSwapTransaction(
     dynamicComputeUnitLimit: true,
     prioritizationFeeLamports: "auto",
   };
-  const res = await jupFetch<{ swapTransaction: string }>("/swap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await fetchJson<{ swapTransaction: string }>(
+    `${JUPITER_QUOTE_API}/swap`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
   return res.swapTransaction;
 }
 

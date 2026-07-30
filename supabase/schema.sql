@@ -561,3 +561,50 @@ begin
     delete from email_login_codes where expires_at < now() - interval '1 day';
   end if;
 end $$;
+
+
+-- ---------------------------------------------------------------------------
+-- 7. Paid token boosts (our own promotion product)
+-- ---------------------------------------------------------------------------
+-- Safe to re-run. Only "if not exists" forms are used here, so a missing table
+-- earlier in the file can never abort this block.
+
+create table if not exists token_boosts (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references app_users(id) on delete set null,
+  token_address text not null,
+  tier integer not null,
+  price_sol numeric not null,
+  duration_hours integer not null,
+  reference text not null unique,
+  pay_to text not null,
+  status text not null default 'pending',
+  signature text,
+  paid_at timestamptz,
+  expires_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists token_boosts_status on token_boosts (status, expires_at);
+create index if not exists token_boosts_token on token_boosts (token_address);
+create index if not exists token_boosts_owner on token_boosts (owner_id, created_at desc);
+
+-- One on-chain payment can only ever fund one boost.
+create unique index if not exists token_boosts_signature
+  on token_boosts (signature) where signature is not null;
+
+alter table token_boosts enable row level security;
+
+-- Boost pricing lives with the rest of the admin settings.
+alter table admin_config add column if not exists boosts_enabled boolean default false;
+alter table admin_config add column if not exists boost_wallet text;
+alter table admin_config add column if not exists boost_tier1_sol numeric;
+alter table admin_config add column if not exists boost_tier1_hours integer;
+alter table admin_config add column if not exists boost_tier2_sol numeric;
+alter table admin_config add column if not exists boost_tier2_hours integer;
+alter table admin_config add column if not exists boost_tier3_sol numeric;
+alter table admin_config add column if not exists boost_tier3_hours integer;
+
+-- Makes overlapping wallet-history syncs idempotent.
+create unique index if not exists wallet_tx_owner_signature
+  on wallet_transactions (owner_id, signature) where signature is not null;

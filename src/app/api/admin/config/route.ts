@@ -74,6 +74,15 @@ const PLAIN_KEYS = [
   "tg_buy_route",
   "tg_buy_ref",
   "tg_buy_template",
+  // Paid boost pricing.
+  "boosts_enabled",
+  "boost_wallet",
+  "boost_tier1_sol",
+  "boost_tier1_hours",
+  "boost_tier2_sol",
+  "boost_tier2_hours",
+  "boost_tier3_sol",
+  "boost_tier3_hours",
 ];
 
 export async function GET() {

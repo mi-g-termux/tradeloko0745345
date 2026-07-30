@@ -39,7 +39,6 @@ export const SERVER_ENV = {
   // Default public RPC works with no key but is heavily rate-limited.
   defaultRpcUrl:
     process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com",
-  jupiterKeyEnv: process.env.JUPITER_API_KEY ?? "",
   heliusKeyEnv: process.env.HELIUS_API_KEY ?? "",
   birdeyeKeyEnv: process.env.BIRDEYE_API_KEY ?? "",
   xBearerEnv: process.env.X_BEARER_TOKEN ?? "",
@@ -91,24 +90,7 @@ export function adminLoginIsPrivate(): boolean {
 
 // Public API bases (all free / no key required).
 export const DEXSCREENER_BASE = "https://api.dexscreener.com";
-/**
- * Jupiter swap hosts, tried in order.
- *
- * `quote-api.jup.ag/v6` used to be hardcoded here and Jupiter SHUT IT DOWN.
- * Every quote request failed, the API route turned that into a 502, and "Buy"
- * was dead for every token on the site. Never pin a single third-party host on
- * a critical path again.
- *
- * - lite-api.jup.ag: free, no key. Jupiter is winding it down gradually.
- * - api.jup.ag: current gateway. Works keyless at a low rate limit and gets far
- *   higher limits once JUPITER_API_KEY is set.
- *
- * Paths are identical on both; only the base URL differs.
- */
-export const JUPITER_SWAP_HOSTS = [
-  "https://lite-api.jup.ag/swap/v1",
-  "https://api.jup.ag/swap/v1",
-];
+export const JUPITER_QUOTE_API = "https://quote-api.jup.ag/v6";
 export const JUPITER_TOKEN_API = "https://tokens.jup.ag";
 
 // GeckoTerminal — FREE OHLCV candle data for Solana pools (no key required).

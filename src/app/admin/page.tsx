@@ -80,6 +80,15 @@ interface Config {
   accent_color: string;
   // Ads
   ads_enabled: boolean;
+  // Paid token boosts (our own promotion product)
+  boosts_enabled: boolean;
+  boost_wallet: string;
+  boost_tier1_sol: number;
+  boost_tier1_hours: number;
+  boost_tier2_sol: number;
+  boost_tier2_hours: number;
+  boost_tier3_sol: number;
+  boost_tier3_hours: number;
 }
 
 type TabId =
@@ -90,6 +99,7 @@ type TabId =
   | "alerts"
   | "providers"
   | "trading"
+  | "boosts"
   | "members";
 
 const TABS: Array<{ value: TabId; label: string }> = [
@@ -100,6 +110,7 @@ const TABS: Array<{ value: TabId; label: string }> = [
   { value: "alerts", label: "Alerts" },
   { value: "providers", label: "API keys" },
   { value: "trading", label: "Trading & fees" },
+  { value: "boosts", label: "Token boosts" },
   { value: "members", label: "Members" },
 ];
 
@@ -249,6 +260,7 @@ export default function AdminPage() {
       {tab === "alerts" ? <AlertsTab cfg={cfg} set={set} /> : null}
       {tab === "providers" ? <ProvidersTab cfg={cfg} set={set} /> : null}
       {tab === "trading" ? <TradingTab cfg={cfg} set={set} /> : null}
+      {tab === "boosts" ? <BoostsTab cfg={cfg} set={set} /> : null}
       {tab === "members" ? <Members /> : null}
 
       {/* ── Sticky save bar: unsaved work can never be lost silently ── */}
@@ -346,7 +358,7 @@ function BrandingTab({ cfg, set }: { cfg: Config; set: Setter }) {
     <div className="grid gap-3 lg:grid-cols-2">
       <Card
         title="Logo & name"
-        hint="The logo shows in the top-left of the navbar on every page, exactly like DexScreener. Paste an https:// image URL (PNG or SVG with a transparent background works best) or upload the file to /public in your repo and use a path such as /logo.png."
+        hint="The logo shows in the top-left of the navbar on every page. Paste an https:// image URL (PNG or SVG with a transparent background works best) or upload the file to /public in your repo and use a path such as /logo.png."
       >
         <Field label="App name" hint="Used in the navbar, page titles and emails.">
           <TextInput
@@ -1536,6 +1548,101 @@ function ProvidersTab({ cfg, set }: { cfg: Config; set: Setter }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+function BoostsTab({ cfg, set }: { cfg: Config; set: Setter }) {
+  const ready =
+    cfg.boosts_enabled &&
+    (cfg.boost_wallet ?? "").trim().length > 0 &&
+    [cfg.boost_tier1_sol, cfg.boost_tier2_sol, cfg.boost_tier3_sol].some(
+      (v) => Number(v) > 0,
+    );
+
+  return (
+    <div className="space-y-3">
+      <Card
+        title="Sell token boosts"
+        hint="Token teams pay you to rank at the top of your Trending feed. Payment is verified on-chain before a boost activates, either from the buyer's in-app wallet in one click or from any external wallet by submitting the transaction signature."
+      >
+        <Switch
+          label="Boosts are on sale"
+          hint="When off, the /boost page tells visitors that boosts are unavailable."
+          checked={cfg.boosts_enabled}
+          onChange={(v) => set("boosts_enabled", v)}
+        />
+        <Field
+          label="Boost payout wallet"
+          hint="Every boost payment is sent here. Boosts stay disabled until this is set, because taking money with no destination would lose it."
+        >
+          <TextInput
+            value={cfg.boost_wallet ?? ""}
+            onChange={(e) => set("boost_wallet", e.target.value)}
+            className="font-mono"
+            placeholder="Your SOL address"
+          />
+        </Field>
+        {!ready ? (
+          <p className="text-2xs text-warn">
+            Not live yet: turn boosts on, set a payout wallet, and give at least one package a
+            price above 0.
+          </p>
+        ) : (
+          <p className="text-2xs text-mute">
+            Live. Buyers can purchase at /boost, and the hourly &quot;Boost expiry&quot; cron job
+            retires boosts when their time is up.
+          </p>
+        )}
+      </Card>
+
+      <Card
+        title="Packages and pricing"
+        hint="You choose the price and the duration. Set a price to 0 to take that package off sale entirely - it is never given away for free."
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Num
+            label="Starter price (SOL)"
+            value={cfg.boost_tier1_sol}
+            step={0.1}
+            onChange={(v) => set("boost_tier1_sol", v)}
+          />
+          <Num
+            label="Starter duration (hours)"
+            value={cfg.boost_tier1_hours}
+            step={1}
+            onChange={(v) => set("boost_tier1_hours", v)}
+          />
+          <Num
+            label="Growth price (SOL)"
+            value={cfg.boost_tier2_sol}
+            step={0.1}
+            onChange={(v) => set("boost_tier2_sol", v)}
+          />
+          <Num
+            label="Growth duration (hours)"
+            value={cfg.boost_tier2_hours}
+            step={1}
+            onChange={(v) => set("boost_tier2_hours", v)}
+          />
+          <Num
+            label="Headline price (SOL)"
+            value={cfg.boost_tier3_sol}
+            step={0.1}
+            onChange={(v) => set("boost_tier3_sol", v)}
+          />
+          <Num
+            label="Headline duration (hours)"
+            value={cfg.boost_tier3_hours}
+            step={1}
+            onChange={(v) => set("boost_tier3_hours", v)}
+          />
+        </div>
+        <p className="text-2xs text-mute">
+          Higher tiers rank above lower ones. Boosted tokens always carry a visible Boosted badge,
+          so traders can tell paid placement from organic ranking.
+        </p>
+      </Card>
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 "use client";
-// Top navigation — DexScreener-style: admin-configurable logo on the left,
+// Top navigation — admin-configurable logo on the left,
 // dense nav links, search shortcut, then the auth button.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,6 +16,7 @@ const LINKS = [
   { href: "/portfolio", label: "Portfolio" },
   { href: "/orders", label: "Orders" },
   { href: "/wallet", label: "Wallet" },
+  { href: "/boost", label: "Boost" },
   { href: "/account", label: "Account" },
 ];
 
@@ -46,7 +47,7 @@ export default function Nav() {
   return (
     <header className="sticky top-0 z-40 border-b border-edge bg-panel/85 backdrop-blur">
       <div className="mx-auto flex h-[52px] max-w-[1600px] items-center gap-3 px-3 sm:px-4">
-        {/* ── Brand: admin-uploaded logo, exactly like DexScreener's top-left ── */}
+        {/* ── Brand: admin-uploaded logo, top-left ── */}
         <Link href="/" className="flex shrink-0 items-center gap-2">
           {showLogo ? (
             /* Intentionally a plain <img>: the logo URL is admin-supplied and

@@ -28,7 +28,8 @@ export type CronJobName =
   | "price-alerts"
   | "whale-signals"
   | "user-autotrade"
-  | "wallet-sync";
+  | "wallet-sync"
+  | "boost-expire";
 
 /**
  * The cadence each job is DESIGNED for. Used to build the copy-paste
@@ -112,6 +113,14 @@ export const CRON_JOBS: Array<{
     label: "Wallet history sync",
     description:
       "Reads each custodial wallet's real signature list from Solana and records anything missing. This is what makes incoming deposits appear in history automatically, and it back-fills withdrawals whose confirmation wait timed out.",
+  },
+  {
+    job: "boost-expire",
+    path: "/api/cron/boost-expire",
+    everyMinutes: 60,
+    label: "Boost expiry",
+    description:
+      "Retires paid token boosts once their paid-for time is up. Ranking already ignores expired boosts, so this only keeps the order list tidy.",
   },
 ];
 

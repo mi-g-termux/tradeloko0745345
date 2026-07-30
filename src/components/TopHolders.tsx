@@ -43,16 +43,7 @@ export function TopHolders({ address }: { address: string }) {
         const r = await fetch(`/api/holders/${address}`);
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? "Failed to load holders");
-        // The API answers { result: { supply, holderCount, holders }, priceUsd }.
-        // This used to do setData(j), so data.holders was undefined and reading
-        // .length crashed the whole tab. Unwrap the envelope explicitly.
-        if (j.error) throw new Error(j.error);
-        if (!j.result) {
-          setData(null);
-          setErr(j.reason ?? "Holder data is unavailable for this token.");
-          return;
-        }
-        setData({ ...j.result, priceUsd: j.priceUsd ?? null });
+        setData(j);
       } catch (e) {
         setErr((e as Error).message);
       } finally {
@@ -95,7 +86,7 @@ export function TopHolders({ address }: { address: string }) {
         </div>
       ) : err ? (
         <div className="text-red-400 text-sm py-2">{err}</div>
-      ) : !data || !data.holders || data.holders.length === 0 ? (
+      ) : !data || data.holders.length === 0 ? (
         <div className="text-slate-500 text-sm py-2">No holder data available.</div>
       ) : (
         <div className="overflow-x-auto">
@@ -111,7 +102,7 @@ export function TopHolders({ address }: { address: string }) {
               </tr>
             </thead>
             <tbody>
-              {(data.holders ?? []).map((h, i) => {
+              {data.holders.map((h, i) => {
                 const p = pnl[h.owner];
                 const big = h.pctSupply >= 5;
                 return (
@@ -138,7 +129,12 @@ export function TopHolders({ address }: { address: string }) {
                       {p === "loading" ? (
                         <Loader2 size={13} className="animate-spin inline text-slate-400" />
                       ) : p === "error" ? (
-                        <span className="text-xs text-red-400">failed</span>
+                        <span
+                          className="cursor-help text-xs text-mute"
+                          title="Per-wallet profit needs full transaction history, which the free public RPC will not serve reliably. Add a Helius key in the admin panel to enable it."
+                        >
+                          needs RPC key
+                        </span>
                       ) : p && typeof p === "object" ? (
                         p.needsKey ? (
                           <span className="text-xs text-slate-500">needs key</span>

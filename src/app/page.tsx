@@ -396,7 +396,7 @@ export default function ScannerPage() {
                   <SortTh
                     col="traders"
                     label="Traders"
-                    title="24h transaction count — an activity proxy. DexScreener's free API does not expose unique makers."
+                    title="24h transaction count — an activity proxy. The free market data feed does not expose unique makers."
                     sort={sort}
                     dir={dir}
                     onSort={onSort}
@@ -479,7 +479,7 @@ export default function ScannerPage() {
                           {t.name}
                         </span>
                         {t.boosts ? (
-                          <Badge tone="warn" title="Paid DexScreener boosts">
+                          <Badge tone="warn" title="Paid boost — the team paid to promote this token here">
                             ⚡{t.boosts}
                           </Badge>
                         ) : null}
@@ -575,7 +575,7 @@ export default function ScannerPage() {
             </p>
             <p className="mt-2">
               <b>Traders</b> is the 24h transaction count (activity proxy).
-              <b> Boosted</b> means the team paid DexScreener for promotion — it
+              <b> Boosted</b> means the team paid to promote the token here — it
               is marketing spend, not a quality signal.
             </p>
           </div>

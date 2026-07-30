@@ -83,6 +83,17 @@ export interface AdminConfig {
   tgBuyRoute: string;
   tgBuyRef: string;
   tgBuyTemplate: string;
+  // Paid token boosts: our own promotion product, priced by the admin.
+  // Boosts stay off sale until a payout wallet AND at least one priced
+  // package exist - taking money with no destination would lose it.
+  boostsEnabled: boolean;
+  boostWallet: string;
+  boostTier1Sol: number;
+  boostTier1Hours: number;
+  boostTier2Sol: number;
+  boostTier2Hours: number;
+  boostTier3Sol: number;
+  boostTier3Hours: number;
 }
 
 const DEFAULTS: AdminConfig = {
@@ -140,6 +151,14 @@ const DEFAULTS: AdminConfig = {
   tgBuyRoute: "jupiter",
   tgBuyRef: "",
   tgBuyTemplate: "",
+  boostsEnabled: false,
+  boostWallet: "",
+  boostTier1Sol: 0.5,
+  boostTier1Hours: 12,
+  boostTier2Sol: 1.5,
+  boostTier2Hours: 48,
+  boostTier3Sol: 4,
+  boostTier3Hours: 168,
 };
 
 let cache: { value: AdminConfig; expiry: number } | null = null;
@@ -233,6 +252,14 @@ export async function getAdminConfig(): Promise<AdminConfig> {
       merged.tgBuyRoute = data.tg_buy_route || DEFAULTS.tgBuyRoute;
       merged.tgBuyRef = data.tg_buy_ref ?? "";
       merged.tgBuyTemplate = data.tg_buy_template ?? "";
+      merged.boostsEnabled = Boolean(data.boosts_enabled);
+      merged.boostWallet = data.boost_wallet ?? "";
+      merged.boostTier1Sol = Number(data.boost_tier1_sol ?? DEFAULTS.boostTier1Sol);
+      merged.boostTier1Hours = Number(data.boost_tier1_hours ?? DEFAULTS.boostTier1Hours);
+      merged.boostTier2Sol = Number(data.boost_tier2_sol ?? DEFAULTS.boostTier2Sol);
+      merged.boostTier2Hours = Number(data.boost_tier2_hours ?? DEFAULTS.boostTier2Hours);
+      merged.boostTier3Sol = Number(data.boost_tier3_sol ?? DEFAULTS.boostTier3Sol);
+      merged.boostTier3Hours = Number(data.boost_tier3_hours ?? DEFAULTS.boostTier3Hours);
     }
   }
 
@@ -301,4 +328,37 @@ export async function getRpcUrls(): Promise<string[]> {
 export async function getSiteUrl(): Promise<string> {
   const cfg = await getAdminConfig();
   return (cfg.siteUrl || "").trim().replace(/\/+$/, "");
+}
+
+export interface BoostPackage {
+  tier: 1 | 2 | 3;
+  priceSol: number;
+  hours: number;
+}
+
+/**
+ * The boost packages currently on sale, cheapest first.
+ *
+ * A package priced at 0 (or with no duration) is treated as WITHDRAWN, not as
+ * free. Clearing a price is the natural way an admin takes a tier off sale.
+ */
+export function boostPackages(cfg: AdminConfig): BoostPackage[] {
+  const raw: BoostPackage[] = [
+    { tier: 1, priceSol: Number(cfg.boostTier1Sol), hours: Number(cfg.boostTier1Hours) },
+    { tier: 2, priceSol: Number(cfg.boostTier2Sol), hours: Number(cfg.boostTier2Hours) },
+    { tier: 3, priceSol: Number(cfg.boostTier3Sol), hours: Number(cfg.boostTier3Hours) },
+  ];
+  return raw
+    .filter((p) => Number.isFinite(p.priceSol) && Number.isFinite(p.hours))
+    .filter((p) => p.priceSol > 0 && p.hours > 0)
+    .sort((a, b) => a.priceSol - b.priceSol);
+}
+
+/** Boosts can only be sold with a payout wallet and something to sell. */
+export function boostsReady(cfg: AdminConfig): boolean {
+  return (
+    Boolean(cfg.boostsEnabled) &&
+    Boolean((cfg.boostWallet || "").trim()) &&
+    boostPackages(cfg).length > 0
+  );
 }
